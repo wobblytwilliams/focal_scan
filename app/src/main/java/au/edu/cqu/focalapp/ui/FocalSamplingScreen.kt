@@ -8,15 +8,21 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -33,10 +39,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import au.edu.cqu.focalapp.domain.model.AnimalColor
+import au.edu.cqu.focalapp.domain.model.Behavior
 import au.edu.cqu.focalapp.ui.components.AnimalPanelCard
 import au.edu.cqu.focalapp.util.CsvExportPayload
 import au.edu.cqu.focalapp.util.CsvExporter
@@ -46,6 +56,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private data class StartSessionAnimalDraft(
+    val animalId: String,
+    val animalColor: AnimalColor
+)
+
 @Composable
 fun FocalSamplingScreen(
     viewModel: FocalSamplingViewModel,
@@ -53,15 +68,19 @@ fun FocalSamplingScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val liveClockText by rememberLiveClockText()
-    var draftAnimalIds by remember(
+    val animalSectionHeight = remember(configuration.screenHeightDp) {
+        (configuration.screenHeightDp.dp - 40.dp).coerceAtLeast(320.dp)
+    }
+    var draftAnimals by remember(
         uiState.showStartSessionDialog,
         uiState.configuredAnimalCount,
         uiState.visibleAnimals
     ) {
-        mutableStateOf(uiState.visibleAnimals.map { it.animalId })
+        mutableStateOf(buildStartSessionDrafts(uiState))
     }
 
     var pendingExport by remember { mutableStateOf<CsvExportPayload?>(null) }
@@ -121,46 +140,42 @@ fun FocalSamplingScreen(
 
     when {
         uiState.showTimeWarning -> {
-            AlertDialog(
-                onDismissRequest = {},
-                title = {
-                    Text("Check device time before sampling")
-                },
-                text = {
-                    Text(
-                        "This app works offline, so it relies on the phone's own clock. " +
-                            "Before you start a session, compare the device time against time.is. " +
-                            "Event timestamps are stored with millisecond precision to help align them with accelerometer data."
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = viewModel::dismissTimeWarning) {
-                        Text("I checked the clock")
-                    }
-                }
+            TimeWarningDialog(
+                onConfirm = viewModel::confirmTimeWarning,
+                onGoBack = viewModel::dismissTimeWarning
             )
         }
 
         uiState.showAnimalCountDialog -> {
             AnimalCountDialog(
-                onSelectCount = viewModel::setAnimalCount
+                onSelectCount = viewModel::setAnimalCount,
+                onDismiss = viewModel::dismissAnimalCountDialog
             )
         }
 
         uiState.showStartSessionDialog -> {
             StartSessionDialog(
-                animalCount = uiState.configuredAnimalCount ?: uiState.visibleAnimals.size,
-                animalIds = draftAnimalIds,
+                animals = draftAnimals,
                 onAnimalIdChanged = { index, value ->
-                    val updated = draftAnimalIds.toMutableList()
+                    val updated = draftAnimals.toMutableList()
                     if (index in updated.indices) {
-                        updated[index] = value
-                        draftAnimalIds = updated
+                        updated[index] = updated[index].copy(animalId = value)
+                        draftAnimals = updated
+                    }
+                },
+                onAnimalColorChanged = { index, color ->
+                    val updated = draftAnimals.toMutableList()
+                    if (index in updated.indices) {
+                        updated[index] = updated[index].copy(animalColor = color)
+                        draftAnimals = updated
                     }
                 },
                 onDismiss = viewModel::dismissStartSessionDialog,
                 onStart = {
-                    viewModel.startSession(draftAnimalIds)
+                    viewModel.startSession(
+                        animalIds = draftAnimals.map(StartSessionAnimalDraft::animalId),
+                        animalColors = draftAnimals.map(StartSessionAnimalDraft::animalColor)
+                    )
                 }
             )
         }
@@ -191,16 +206,18 @@ fun FocalSamplingScreen(
                 uiState = uiState,
                 onStartSession = viewModel::requestStartSession,
                 onStopSession = viewModel::stopSession,
+                onDeleteLast30Seconds = viewModel::deleteLast30Seconds,
                 onExportCsv = viewModel::exportCsv,
                 onConfigureAnimals = viewModel::openAnimalCountDialog
             )
 
-            uiState.visibleAnimals.forEach { animal ->
-                AnimalPanelCard(
-                    animal = animal,
+            if (uiState.visibleAnimals.isNotEmpty()) {
+                AnimalPanelsSection(
+                    animals = uiState.visibleAnimals,
                     sessionActive = uiState.isSessionActive,
-                    onBehaviourPressed = { behaviour ->
-                        viewModel.onBehaviourPressed(animal.slotIndex, behaviour)
+                    animalSectionHeight = animalSectionHeight,
+                    onBehaviourPressed = { slotIndex, behaviour ->
+                        viewModel.onBehaviourPressed(slotIndex, behaviour)
                     }
                 )
             }
@@ -269,12 +286,76 @@ private fun ClockCard(
     }
 }
 
+@Composable
+private fun TimeWarningDialog(
+    onConfirm: () -> Unit,
+    onGoBack: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onGoBack,
+        title = {
+            Text("Check device time before sampling")
+        },
+        text = {
+            Text(
+                "This app works offline, so it relies on the phone's own clock. " +
+                    "Before you start a session, compare the device time against time.is. " +
+                    "Event timestamps are stored with millisecond precision to help align them with accelerometer data."
+            )
+        },
+        dismissButton = {
+            TextButton(onClick = onGoBack) {
+                Text("Go Back")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Confirm")
+            }
+        }
+    )
+}
+
+@Composable
+private fun AnimalPanelsSection(
+    animals: List<AnimalPanelUiState>,
+    sessionActive: Boolean,
+    animalSectionHeight: Dp,
+    onBehaviourPressed: (Int, Behavior) -> Unit
+) {
+    val sectionSpacing = when (animals.size) {
+        1 -> 16.dp
+        2 -> 12.dp
+        else -> 8.dp
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(animalSectionHeight),
+        verticalArrangement = Arrangement.spacedBy(sectionSpacing)
+    ) {
+        animals.forEach { animal ->
+            AnimalPanelCard(
+                animal = animal,
+                totalAnimals = animals.size,
+                sessionActive = sessionActive,
+                onBehaviourPressed = { behaviour ->
+                    onBehaviourPressed(animal.slotIndex, behaviour)
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SessionControlsCard(
     uiState: FocalSamplingUiState,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
+    onDeleteLast30Seconds: () -> Unit,
     onExportCsv: () -> Unit,
     onConfigureAnimals: () -> Unit
 ) {
@@ -307,7 +388,7 @@ private fun SessionControlsCard(
                         "The most recent session is ready to export as CSV."
 
                     else ->
-                        "Start a session to begin recording behaviour events."
+                        "Set the number of animals first, then start a session to begin recording behaviour events."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -338,6 +419,17 @@ private fun SessionControlsCard(
                     Text("Stop Session")
                 }
 
+                Button(
+                    onClick = onDeleteLast30Seconds,
+                    enabled = uiState.isSessionActive,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text("Delete Last 30s")
+                }
+
                 OutlinedButton(
                     onClick = onExportCsv,
                     enabled = uiState.canExport
@@ -352,10 +444,11 @@ private fun SessionControlsCard(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AnimalCountDialog(
-    onSelectCount: (Int) -> Unit
+    onSelectCount: (Int) -> Unit,
+    onDismiss: () -> Unit
 ) {
     AlertDialog(
-        onDismissRequest = {},
+        onDismissRequest = onDismiss,
         title = {
             Text("How many animals will you monitor?")
         },
@@ -374,38 +467,84 @@ private fun AnimalCountDialog(
                 }
             }
         },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
         confirmButton = {}
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StartSessionDialog(
-    animalCount: Int,
-    animalIds: List<String>,
+    animals: List<StartSessionAnimalDraft>,
     onAnimalIdChanged: (Int, String) -> Unit,
+    onAnimalColorChanged: (Int, AnimalColor) -> Unit,
     onDismiss: () -> Unit,
     onStart: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Set animal IDs")
+            Text("Set animal IDs and colours")
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Enter the IDs for the animals you are about to monitor.")
-                repeat(animalCount) { index ->
-                    OutlinedTextField(
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Enter the IDs and choose a background colour for the animals you are about to monitor.")
+                animals.forEachIndexed { index, animal ->
+                    val palette = animal.animalColor.palette()
+                    OutlinedCard(
                         modifier = Modifier.fillMaxWidth(),
-                        value = animalIds.getOrNull(index).orEmpty(),
-                        onValueChange = { value ->
-                            onAnimalIdChanged(index, value)
-                        },
-                        singleLine = true,
-                        label = {
-                            Text("Animal ${index + 1} ID")
+                        colors = CardDefaults.outlinedCardColors(
+                            containerColor = palette.previewColor.copy(alpha = 0.45f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "Animal ${index + 1}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            OutlinedTextField(
+                                modifier = Modifier.fillMaxWidth(),
+                                value = animal.animalId,
+                                onValueChange = { value ->
+                                    onAnimalIdChanged(index, value)
+                                },
+                                singleLine = true,
+                                label = {
+                                    Text("Animal ${index + 1} ID")
+                                }
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                AnimalColor.entries.forEach { color ->
+                                    val colorPalette = color.palette()
+                                    FilterChip(
+                                        selected = animal.animalColor == color,
+                                        onClick = { onAnimalColorChanged(index, color) },
+                                        label = {
+                                            Text(color.label)
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = colorPalette.selectionColor,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    )
+                                }
+                            }
                         }
-                    )
+                    }
                 }
             }
         },
@@ -420,4 +559,15 @@ private fun StartSessionDialog(
             }
         }
     )
+}
+
+private fun buildStartSessionDrafts(uiState: FocalSamplingUiState): List<StartSessionAnimalDraft> {
+    val animalCount = uiState.configuredAnimalCount ?: uiState.visibleAnimals.size
+    return List(animalCount) { index ->
+        val animal = uiState.animals.getOrNull(index)
+        StartSessionAnimalDraft(
+            animalId = animal?.animalId ?: "Animal ${index + 1}",
+            animalColor = animal?.animalColor ?: AnimalColor.defaultForSlot(index)
+        )
+    }
 }

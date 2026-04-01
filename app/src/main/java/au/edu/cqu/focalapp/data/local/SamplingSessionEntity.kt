@@ -9,6 +9,7 @@ data class SamplingSessionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     @ColumnInfo(name = "animal_count") val animalCount: Int,
     @ColumnInfo(name = "animal_ids_json") val animalIdsJson: String,
+    @ColumnInfo(name = "animal_colors_json") val animalColorsJson: String,
     @ColumnInfo(name = "started_at") val startedAtEpochMs: Long,
     @ColumnInfo(name = "ended_at") val endedAtEpochMs: Long? = null
 )

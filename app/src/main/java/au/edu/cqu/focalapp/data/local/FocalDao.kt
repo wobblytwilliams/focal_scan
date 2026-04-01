@@ -3,6 +3,7 @@ package au.edu.cqu.focalapp.data.local
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 
 @Dao
 interface FocalDao {
@@ -32,4 +33,24 @@ interface FocalDao {
 
     @Query("SELECT * FROM events WHERE session_id = :sessionId ORDER BY start_time ASC, id ASC")
     suspend fun getEventsForSession(sessionId: Long): List<BehaviorEventEntity>
+
+    @Query("DELETE FROM events WHERE session_id = :sessionId AND start_time >= :cutoffEpochMs")
+    suspend fun deleteEventsStartingFrom(sessionId: Long, cutoffEpochMs: Long): Int
+
+    @Query(
+        """
+        UPDATE events
+        SET end_time = :cutoffEpochMs
+        WHERE session_id = :sessionId
+            AND start_time < :cutoffEpochMs
+            AND (end_time IS NULL OR end_time > :cutoffEpochMs)
+        """
+    )
+    suspend fun truncateEventsAtCutoff(sessionId: Long, cutoffEpochMs: Long): Int
+
+    @Transaction
+    suspend fun trimSessionToCutoff(sessionId: Long, cutoffEpochMs: Long) {
+        deleteEventsStartingFrom(sessionId, cutoffEpochMs)
+        truncateEventsAtCutoff(sessionId, cutoffEpochMs)
+    }
 }

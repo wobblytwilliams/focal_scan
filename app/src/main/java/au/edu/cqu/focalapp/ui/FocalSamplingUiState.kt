@@ -1,10 +1,12 @@
 package au.edu.cqu.focalapp.ui
 
+import au.edu.cqu.focalapp.domain.model.AnimalColor
 import au.edu.cqu.focalapp.domain.model.Behavior
 
 data class AnimalPanelUiState(
     val slotIndex: Int,
     val animalId: String,
+    val animalColor: AnimalColor,
     val activeBehaviour: Behavior? = null,
     val activeEventId: Long? = null,
     val activeStartedAtEpochMs: Long? = null
@@ -14,7 +16,8 @@ data class AnimalPanelUiState(
             return List(count) { index ->
                 AnimalPanelUiState(
                     slotIndex = index,
-                    animalId = "Animal ${index + 1}"
+                    animalId = "Animal ${index + 1}",
+                    animalColor = AnimalColor.defaultForSlot(index)
                 )
             }
         }
@@ -27,8 +30,8 @@ data class FocalSamplingUiState(
     val activeSessionStartedAtEpochMs: Long? = null,
     val exportSessionId: Long? = null,
     val configuredAnimalCount: Int? = null,
-    val showTimeWarning: Boolean = true,
-    val showAnimalCountDialog: Boolean = true,
+    val showTimeWarning: Boolean = false,
+    val showAnimalCountDialog: Boolean = false,
     val showStartSessionDialog: Boolean = false,
     val animals: List<AnimalPanelUiState> = AnimalPanelUiState.defaults()
 ) {

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CardDefaults
@@ -17,30 +18,52 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import au.edu.cqu.focalapp.domain.model.Behavior
 import au.edu.cqu.focalapp.ui.AnimalPanelUiState
+import au.edu.cqu.focalapp.ui.palette
 import au.edu.cqu.focalapp.util.DateTimeFormats
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AnimalPanelCard(
     animal: AnimalPanelUiState,
+    totalAnimals: Int,
     sessionActive: Boolean,
     onBehaviourPressed: (Behavior) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isActive = animal.activeBehaviour != null
-    val borderColor = if (isActive) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.outlineVariant
+    val palette = animal.animalColor.palette()
+    val borderColor = if (isActive) palette.borderColor else palette.borderColor.copy(alpha = 0.55f)
+    val verticalSpacing = when (totalAnimals) {
+        1 -> 16.dp
+        2 -> 12.dp
+        else -> 8.dp
+    }
+    val contentPadding = when (totalAnimals) {
+        1 -> 20.dp
+        2 -> 16.dp
+        else -> 12.dp
+    }
+    val titleStyle = when (totalAnimals) {
+        3 -> MaterialTheme.typography.titleSmall
+        else -> MaterialTheme.typography.titleMedium
+    }
+    val idStyle = when (totalAnimals) {
+        1 -> MaterialTheme.typography.bodyLarge
+        else -> MaterialTheme.typography.bodyMedium
+    }
+    val statusStyle = when (totalAnimals) {
+        3 -> MaterialTheme.typography.labelSmall
+        else -> MaterialTheme.typography.labelMedium
     }
 
     val containerColor = if (isActive) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+        palette.activeContainerColor
     } else {
-        MaterialTheme.colorScheme.surface
+        palette.containerColor
     }
 
     OutlinedCard(
@@ -49,8 +72,10 @@ fun AnimalPanelCard(
         border = BorderStroke(1.dp, borderColor)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+            verticalArrangement = Arrangement.spacedBy(verticalSpacing)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -59,7 +84,7 @@ fun AnimalPanelCard(
             ) {
                 Text(
                     text = "Animal ${animal.slotIndex + 1}",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = titleStyle,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
@@ -68,21 +93,23 @@ fun AnimalPanelCard(
                         sessionActive -> "Ready"
                         else -> "Session inactive"
                     },
-                    style = MaterialTheme.typography.labelMedium,
+                    style = statusStyle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             Text(
                 text = "Animal ID: ${animal.animalId}",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium
+                style = idStyle,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
 
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (totalAnimals == 3) 6.dp else 8.dp),
+                verticalArrangement = Arrangement.spacedBy(if (totalAnimals == 3) 6.dp else 8.dp)
             ) {
                 Behavior.entries.forEach { behaviour ->
                     FilterChip(
@@ -90,7 +117,16 @@ fun AnimalPanelCard(
                         onClick = { onBehaviourPressed(behaviour) },
                         enabled = sessionActive,
                         label = {
-                            Text(behaviour.label)
+                            Text(
+                                text = behaviour.label,
+                                style = if (totalAnimals == 3) {
+                                    MaterialTheme.typography.labelMedium
+                                } else {
+                                    MaterialTheme.typography.bodyMedium
+                                },
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     )
                 }
@@ -107,7 +143,11 @@ fun AnimalPanelCard(
                     else ->
                         "Start a session to begin recording."
                 },
-                style = MaterialTheme.typography.bodyMedium,
+                style = if (totalAnimals == 1) {
+                    MaterialTheme.typography.bodyMedium
+                } else {
+                    MaterialTheme.typography.bodySmall
+                },
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

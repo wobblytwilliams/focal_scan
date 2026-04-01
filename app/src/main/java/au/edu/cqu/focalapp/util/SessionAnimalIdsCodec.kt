@@ -8,6 +8,10 @@ object SessionAnimalIdsCodec {
     }
 
     fun decode(raw: String): List<String> {
+        if (raw.isBlank()) {
+            return emptyList()
+        }
+
         val jsonArray = JSONArray(raw)
         return List(jsonArray.length()) { index ->
             jsonArray.optString(index)

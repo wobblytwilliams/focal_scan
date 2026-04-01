@@ -3,10 +3,12 @@ package au.edu.cqu.focalapp.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import au.edu.cqu.focalapp.data.repository.FocalRepository
+import au.edu.cqu.focalapp.domain.model.AnimalColor
 import au.edu.cqu.focalapp.domain.model.Behavior
 import au.edu.cqu.focalapp.util.CsvExportPayload
 import au.edu.cqu.focalapp.util.CsvExporter
 import au.edu.cqu.focalapp.util.DateTimeFormats
+import au.edu.cqu.focalapp.util.SessionAnimalColorsCodec
 import au.edu.cqu.focalapp.util.SessionAnimalIdsCodec
 import au.edu.cqu.focalapp.util.TimeProvider
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -29,6 +31,10 @@ class FocalSamplingViewModel(
     private val repository: FocalRepository,
     private val timeProvider: TimeProvider
 ) : ViewModel() {
+    private companion object {
+        const val ROLLBACK_WINDOW_MS = 30_000L
+    }
+
     private val actionMutex = Mutex()
 
     private val _uiState = MutableStateFlow(FocalSamplingUiState())
@@ -42,7 +48,32 @@ class FocalSamplingViewModel(
     }
 
     fun dismissTimeWarning() {
-        _uiState.update { it.copy(showTimeWarning = false) }
+        _uiState.update {
+            it.copy(
+                showTimeWarning = false,
+                showStartSessionDialog = false
+            )
+        }
+    }
+
+    fun confirmTimeWarning() {
+        val state = _uiState.value
+        if (state.isSessionActive) {
+            return
+        }
+
+        if (state.configuredAnimalCount == null) {
+            openAnimalCountDialog()
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                showTimeWarning = false,
+                showAnimalCountDialog = false,
+                showStartSessionDialog = true
+            )
+        }
     }
 
     fun openAnimalCountDialog() {
@@ -52,10 +83,15 @@ class FocalSamplingViewModel(
 
         _uiState.update {
             it.copy(
+                showTimeWarning = false,
                 showAnimalCountDialog = true,
                 showStartSessionDialog = false
             )
         }
+    }
+
+    fun dismissAnimalCountDialog() {
+        _uiState.update { it.copy(showAnimalCountDialog = false) }
     }
 
     fun setAnimalCount(count: Int) {
@@ -66,6 +102,7 @@ class FocalSamplingViewModel(
         _uiState.update { state ->
             state.copy(
                 configuredAnimalCount = count,
+                showTimeWarning = false,
                 showAnimalCountDialog = false,
                 showStartSessionDialog = false,
                 animals = buildAnimalsForCount(
@@ -89,8 +126,9 @@ class FocalSamplingViewModel(
 
         _uiState.update {
             it.copy(
+                showTimeWarning = true,
                 showAnimalCountDialog = false,
-                showStartSessionDialog = true
+                showStartSessionDialog = false
             )
         }
     }
@@ -99,7 +137,7 @@ class FocalSamplingViewModel(
         _uiState.update { it.copy(showStartSessionDialog = false) }
     }
 
-    fun startSession(animalIds: List<String>) {
+    fun startSession(animalIds: List<String>, animalColors: List<AnimalColor>) {
         viewModelScope.launch {
             actionMutex.withLock {
                 val state = _uiState.value
@@ -111,6 +149,7 @@ class FocalSamplingViewModel(
                 if (animalCount == null) {
                     _uiState.update {
                         it.copy(
+                            showTimeWarning = false,
                             showAnimalCountDialog = true,
                             showStartSessionDialog = false
                         )
@@ -121,11 +160,15 @@ class FocalSamplingViewModel(
                 val normalizedIds = List(animalCount) { index ->
                     normalizedAnimalId(animalIds.getOrNull(index).orEmpty(), index)
                 }
+                val normalizedColors = List(animalCount) { index ->
+                    animalColors.getOrNull(index) ?: AnimalColor.defaultForSlot(index)
+                }
                 val now = timeProvider.nowEpochMillis()
                 val sessionId = repository.startSession(
                     startedAtEpochMs = now,
                     animalCount = animalCount,
-                    animalIds = normalizedIds
+                    animalIds = normalizedIds,
+                    animalColors = normalizedColors
                 )
 
                 _uiState.value = state.copy(
@@ -133,12 +176,14 @@ class FocalSamplingViewModel(
                     activeSessionId = sessionId,
                     activeSessionStartedAtEpochMs = now,
                     exportSessionId = sessionId,
+                    showTimeWarning = false,
                     showAnimalCountDialog = false,
                     showStartSessionDialog = false,
                     animals = buildAnimalsForCount(
                         currentAnimals = state.animals,
                         animalCount = animalCount,
-                        configuredIds = normalizedIds
+                        configuredIds = normalizedIds,
+                        configuredColors = normalizedColors
                     )
                 )
 
@@ -184,6 +229,39 @@ class FocalSamplingViewModel(
                 _events.emit(
                     UiEvent.ShowMessage(
                         "Session #$sessionId stopped. Open behaviours were closed at ${DateTimeFormats.formatLocalTime(now)}."
+                    )
+                )
+            }
+        }
+    }
+
+    fun deleteLast30Seconds() {
+        viewModelScope.launch {
+            actionMutex.withLock {
+                val state = _uiState.value
+                val sessionId = state.activeSessionId
+
+                if (!state.isSessionActive || sessionId == null) {
+                    return@withLock
+                }
+
+                val cutoffEpochMs = timeProvider.nowEpochMillis() - ROLLBACK_WINDOW_MS
+                repository.trimSessionToCutoff(sessionId, cutoffEpochMs)
+
+                _uiState.value = state.copy(
+                    animals = state.animals.map { animal ->
+                        animal.copy(
+                            activeBehaviour = null,
+                            activeEventId = null,
+                            activeStartedAtEpochMs = null
+                        )
+                    },
+                    exportSessionId = sessionId
+                )
+
+                _events.emit(
+                    UiEvent.ShowMessage(
+                        "Deleted the last 30 seconds. Logging is paused until you choose a new behaviour."
                     )
                 )
             }
@@ -310,15 +388,17 @@ class FocalSamplingViewModel(
 
                 if (activeSnapshot != null) {
                     val configuredIds = SessionAnimalIdsCodec.decode(activeSnapshot.session.animalIdsJson)
+                    val configuredColors = SessionAnimalColorsCodec.decode(activeSnapshot.session.animalColorsJson)
                     val restoredAnimals = buildAnimalsForCount(
                         currentAnimals = AnimalPanelUiState.defaults(),
                         animalCount = activeSnapshot.session.animalCount,
                         configuredIds = configuredIds,
+                        configuredColors = configuredColors,
                         resetActiveState = false
                     ).toMutableList()
 
                     activeSnapshot.openEvents
-                        .take(3)
+                        .take(activeSnapshot.session.animalCount)
                         .forEach { event ->
                             val configuredIndex = configuredIds.indexOfFirst { it == event.animalId }
                             val targetIndex = if (configuredIndex in restoredAnimals.indices) {
@@ -329,11 +409,11 @@ class FocalSamplingViewModel(
 
                             if (targetIndex in restoredAnimals.indices) {
                                 restoredAnimals[targetIndex] = restoredAnimals[targetIndex].copy(
-                                animalId = event.animalId,
-                                activeBehaviour = event.behaviour,
-                                activeEventId = event.id,
-                                activeStartedAtEpochMs = event.startTimeEpochMs
-                            )
+                                    animalId = event.animalId,
+                                    activeBehaviour = event.behaviour,
+                                    activeEventId = event.id,
+                                    activeStartedAtEpochMs = event.startTimeEpochMs
+                                )
                             }
                         }
 
@@ -343,20 +423,26 @@ class FocalSamplingViewModel(
                         activeSessionStartedAtEpochMs = activeSnapshot.session.startedAtEpochMs,
                         exportSessionId = activeSnapshot.session.id,
                         configuredAnimalCount = activeSnapshot.session.animalCount,
-                        showTimeWarning = true,
+                        showTimeWarning = false,
                         showAnimalCountDialog = false,
                         showStartSessionDialog = false,
                         animals = restoredAnimals
                     )
                 } else if (latestSession != null) {
+                    val configuredIds = SessionAnimalIdsCodec.decode(latestSession.animalIdsJson)
+                    val configuredColors = SessionAnimalColorsCodec.decode(latestSession.animalColorsJson)
                     _uiState.update {
                         it.copy(
                             exportSessionId = latestSession.id,
                             configuredAnimalCount = latestSession.animalCount,
+                            showTimeWarning = false,
+                            showAnimalCountDialog = false,
+                            showStartSessionDialog = false,
                             animals = buildAnimalsForCount(
                                 currentAnimals = it.animals,
                                 animalCount = latestSession.animalCount,
-                                configuredIds = SessionAnimalIdsCodec.decode(latestSession.animalIdsJson)
+                                configuredIds = configuredIds,
+                                configuredColors = configuredColors
                             )
                         )
                     }
@@ -373,6 +459,7 @@ class FocalSamplingViewModel(
         currentAnimals: List<AnimalPanelUiState>,
         animalCount: Int,
         configuredIds: List<String> = emptyList(),
+        configuredColors: List<AnimalColor> = emptyList(),
         resetActiveState: Boolean = true
     ): List<AnimalPanelUiState> {
         val defaults = AnimalPanelUiState.defaults()
@@ -382,7 +469,8 @@ class FocalSamplingViewModel(
                 val current = currentAnimals.getOrNull(index) ?: default
                 val configuredAnimal = current.copy(
                     animalId = configuredIds.getOrNull(index)
-                        ?: current.animalId.trim().ifEmpty { "Animal ${index + 1}" }
+                        ?: current.animalId.trim().ifEmpty { "Animal ${index + 1}" },
+                    animalColor = configuredColors.getOrNull(index) ?: current.animalColor
                 )
 
                 if (resetActiveState) {

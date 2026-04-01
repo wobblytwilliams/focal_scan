@@ -3,7 +3,9 @@ package au.edu.cqu.focalapp.data.repository
 import au.edu.cqu.focalapp.data.local.BehaviorEventEntity
 import au.edu.cqu.focalapp.data.local.FocalDao
 import au.edu.cqu.focalapp.data.local.SamplingSessionEntity
+import au.edu.cqu.focalapp.domain.model.AnimalColor
 import au.edu.cqu.focalapp.domain.model.Behavior
+import au.edu.cqu.focalapp.util.SessionAnimalColorsCodec
 import au.edu.cqu.focalapp.util.SessionAnimalIdsCodec
 
 data class ActiveSessionSnapshot(
@@ -29,12 +31,14 @@ class FocalRepository(
     suspend fun startSession(
         startedAtEpochMs: Long,
         animalCount: Int,
-        animalIds: List<String>
+        animalIds: List<String>,
+        animalColors: List<AnimalColor>
     ): Long {
         return dao.insertSession(
             SamplingSessionEntity(
                 animalCount = animalCount,
                 animalIdsJson = SessionAnimalIdsCodec.encode(animalIds),
+                animalColorsJson = SessionAnimalColorsCodec.encode(animalColors),
                 startedAtEpochMs = startedAtEpochMs
             )
         )
@@ -63,6 +67,11 @@ class FocalRepository(
     suspend fun endEvent(eventId: Long, endTimeEpochMs: Long) {
         dao.endEvent(eventId, endTimeEpochMs)
     }
+
+    suspend fun trimSessionToCutoff(sessionId: Long, cutoffEpochMs: Long) {
+        dao.trimSessionToCutoff(sessionId, cutoffEpochMs)
+    }
+
     suspend fun getEventsForSession(sessionId: Long): List<BehaviorEventEntity> {
         return dao.getEventsForSession(sessionId)
     }
