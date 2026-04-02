@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -493,7 +494,8 @@ private fun StartSessionDialog(
                     OutlinedCard(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.outlinedCardColors(
-                            containerColor = palette.previewColor.copy(alpha = 0.45f)
+                            containerColor = palette.previewColor.copy(alpha = 0.92f),
+                            contentColor = palette.contentColor
                         )
                     ) {
                         Column(
@@ -503,7 +505,8 @@ private fun StartSessionDialog(
                             Text(
                                 text = "Animal ${index + 1}",
                                 style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                color = palette.contentColor
                             )
                             OutlinedTextField(
                                 modifier = Modifier.fillMaxWidth(),
@@ -514,7 +517,18 @@ private fun StartSessionDialog(
                                 singleLine = true,
                                 label = {
                                     Text("Animal ${index + 1} ID")
-                                }
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = palette.contentColor,
+                                    unfocusedTextColor = palette.contentColor,
+                                    focusedLabelColor = palette.supportingColor,
+                                    unfocusedLabelColor = palette.supportingColor,
+                                    cursorColor = palette.borderColor,
+                                    focusedBorderColor = palette.borderColor,
+                                    unfocusedBorderColor = palette.borderColor.copy(alpha = 0.6f),
+                                    focusedContainerColor = palette.fieldColor,
+                                    unfocusedContainerColor = palette.fieldColor
+                                )
                             )
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -529,8 +543,10 @@ private fun StartSessionDialog(
                                             Text(color.label)
                                         },
                                         colors = FilterChipDefaults.filterChipColors(
+                                            containerColor = colorPalette.fieldColor,
+                                            labelColor = colorPalette.contentColor,
                                             selectedContainerColor = colorPalette.selectionColor,
-                                            selectedLabelColor = MaterialTheme.colorScheme.onSurface
+                                            selectedLabelColor = colorPalette.contentColor
                                         )
                                     )
                                 }

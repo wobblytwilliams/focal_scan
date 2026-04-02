@@ -40,6 +40,8 @@ fun AnimalPanelCard(
     val isActive = animal.activeBehaviour != null
     val palette = animal.animalColor.palette()
     val borderColor = if (isActive) palette.borderColor else palette.borderColor.copy(alpha = 0.55f)
+    val titleColor = palette.contentColor
+    val supportingTextColor = palette.supportingColor
     val verticalSpacing = when (totalAnimals) {
         1 -> 16.dp
         2 -> 12.dp
@@ -71,7 +73,10 @@ fun AnimalPanelCard(
 
     OutlinedCard(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.outlinedCardColors(containerColor = containerColor),
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = containerColor,
+            contentColor = titleColor
+        ),
         border = BorderStroke(1.dp, borderColor)
     ) {
         Column(
@@ -88,7 +93,8 @@ fun AnimalPanelCard(
                 Text(
                     text = "Animal ${animal.slotIndex + 1}",
                     style = titleStyle,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    color = titleColor
                 )
                 Text(
                     text = when {
@@ -97,7 +103,7 @@ fun AnimalPanelCard(
                         else -> "Session inactive"
                     },
                     style = statusStyle,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = supportingTextColor
                 )
             }
 
@@ -105,6 +111,7 @@ fun AnimalPanelCard(
                 text = "Animal ID: ${animal.animalId}",
                 style = idStyle,
                 fontWeight = FontWeight.Medium,
+                color = titleColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -119,6 +126,12 @@ fun AnimalPanelCard(
                         selected = animal.activeBehaviour == behaviour,
                         onClick = { onBehaviourPressed(behaviour) },
                         enabled = sessionActive,
+                        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                            containerColor = palette.fieldColor,
+                            labelColor = titleColor,
+                            selectedContainerColor = palette.selectionColor,
+                            selectedLabelColor = titleColor
+                        ),
                         label = {
                             Text(
                                 text = behaviour.label,
@@ -151,7 +164,7 @@ fun AnimalPanelCard(
                 } else {
                     MaterialTheme.typography.bodySmall
                 },
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = supportingTextColor
             )
 
             Button(
