@@ -235,33 +235,42 @@ class FocalSamplingViewModel(
         }
     }
 
-    fun deleteLast30Seconds() {
+    fun deleteLast30Seconds(slotIndex: Int) {
         viewModelScope.launch {
             actionMutex.withLock {
                 val state = _uiState.value
                 val sessionId = state.activeSessionId
+                val animal = state.animals.getOrNull(slotIndex)
 
-                if (!state.isSessionActive || sessionId == null) {
+                if (!state.isSessionActive || sessionId == null || animal == null) {
                     return@withLock
                 }
 
                 val cutoffEpochMs = timeProvider.nowEpochMillis() - ROLLBACK_WINDOW_MS
-                repository.trimSessionToCutoff(sessionId, cutoffEpochMs)
+                val normalizedAnimalId = normalizedAnimalId(animal.animalId, slotIndex)
+                repository.trimAnimalToCutoff(
+                    sessionId = sessionId,
+                    animalId = normalizedAnimalId,
+                    cutoffEpochMs = cutoffEpochMs
+                )
+
+                val updatedAnimals = state.animals.toMutableList().apply {
+                    this[slotIndex] = animal.copy(
+                        animalId = normalizedAnimalId,
+                        activeBehaviour = null,
+                        activeEventId = null,
+                        activeStartedAtEpochMs = null
+                    )
+                }
 
                 _uiState.value = state.copy(
-                    animals = state.animals.map { animal ->
-                        animal.copy(
-                            activeBehaviour = null,
-                            activeEventId = null,
-                            activeStartedAtEpochMs = null
-                        )
-                    },
+                    animals = updatedAnimals,
                     exportSessionId = sessionId
                 )
 
                 _events.emit(
                     UiEvent.ShowMessage(
-                        "Deleted the last 30 seconds. Logging is paused until you choose a new behaviour."
+                        "Deleted the last 30 seconds for $normalizedAnimalId. Logging for this animal is paused."
                     )
                 )
             }

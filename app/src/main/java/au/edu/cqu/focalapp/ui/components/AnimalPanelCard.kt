@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +34,7 @@ fun AnimalPanelCard(
     totalAnimals: Int,
     sessionActive: Boolean,
     onBehaviourPressed: (Behavior) -> Unit,
+    onDeleteLast30Seconds: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isActive = animal.activeBehaviour != null
@@ -150,6 +153,18 @@ fun AnimalPanelCard(
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            Button(
+                onClick = onDeleteLast30Seconds,
+                enabled = sessionActive,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                )
+            ) {
+                Text(if (totalAnimals == 3) "Delete 30s" else "Delete Last 30s")
+            }
         }
     }
 }

@@ -121,15 +121,15 @@ class FocalSamplingViewModelTest {
     }
 
     @Test
-    fun deleteLast30Seconds_clearsActiveBehavioursWithoutStoppingSession() = runTest {
+    fun deleteLast30Seconds_onlyClearsSelectedAnimalWithoutStoppingSession() = runTest {
         val viewModel = createViewModel()
 
-        viewModel.setAnimalCount(1)
+        viewModel.setAnimalCount(2)
         viewModel.requestStartSession()
         viewModel.confirmTimeWarning()
         viewModel.startSession(
-            animalIds = listOf("Ram 3"),
-            animalColors = listOf(AnimalColor.BLUE)
+            animalIds = listOf("Ram 3", "Ewe 8"),
+            animalColors = listOf(AnimalColor.BLUE, AnimalColor.GREEN)
         )
         advanceUntilIdle()
 
@@ -137,14 +137,23 @@ class FocalSamplingViewModelTest {
         viewModel.onBehaviourPressed(slotIndex = 0, behaviour = Behavior.GRAZING)
         advanceUntilIdle()
 
+        timeProvider.now = 110_000L
+        viewModel.onBehaviourPressed(slotIndex = 1, behaviour = Behavior.WALKING)
+        advanceUntilIdle()
+
         timeProvider.now = 135_000L
-        viewModel.deleteLast30Seconds()
+        viewModel.deleteLast30Seconds(slotIndex = 0)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
         assertTrue(state.isSessionActive)
-        assertNull(state.visibleAnimals.single().activeBehaviour)
-        assertTrue(repository.getEventsForSession(state.activeSessionId!!).isEmpty())
+        assertNull(state.visibleAnimals[0].activeBehaviour)
+        assertEquals(Behavior.WALKING, state.visibleAnimals[1].activeBehaviour)
+
+        val events = repository.getEventsForSession(state.activeSessionId!!)
+        assertEquals(1, events.size)
+        assertEquals("Ewe 8", events.single().animalId)
+        assertNull(events.single().endTimeEpochMs)
         assertNull(repository.getSessionById(state.activeSessionId!!)?.endedAtEpochMs)
     }
 

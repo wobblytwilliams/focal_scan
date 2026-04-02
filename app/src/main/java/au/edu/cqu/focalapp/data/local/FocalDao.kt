@@ -53,4 +53,44 @@ interface FocalDao {
         deleteEventsStartingFrom(sessionId, cutoffEpochMs)
         truncateEventsAtCutoff(sessionId, cutoffEpochMs)
     }
+
+    @Query(
+        """
+        DELETE FROM events
+        WHERE session_id = :sessionId
+            AND animal_id = :animalId
+            AND start_time >= :cutoffEpochMs
+        """
+    )
+    suspend fun deleteAnimalEventsStartingFrom(
+        sessionId: Long,
+        animalId: String,
+        cutoffEpochMs: Long
+    ): Int
+
+    @Query(
+        """
+        UPDATE events
+        SET end_time = :cutoffEpochMs
+        WHERE session_id = :sessionId
+            AND animal_id = :animalId
+            AND start_time < :cutoffEpochMs
+            AND (end_time IS NULL OR end_time > :cutoffEpochMs)
+        """
+    )
+    suspend fun truncateAnimalEventsAtCutoff(
+        sessionId: Long,
+        animalId: String,
+        cutoffEpochMs: Long
+    ): Int
+
+    @Transaction
+    suspend fun trimAnimalToCutoff(
+        sessionId: Long,
+        animalId: String,
+        cutoffEpochMs: Long
+    ) {
+        deleteAnimalEventsStartingFrom(sessionId, animalId, cutoffEpochMs)
+        truncateAnimalEventsAtCutoff(sessionId, animalId, cutoffEpochMs)
+    }
 }

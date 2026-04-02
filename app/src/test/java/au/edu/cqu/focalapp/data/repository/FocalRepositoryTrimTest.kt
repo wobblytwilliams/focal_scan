@@ -96,4 +96,41 @@ class FocalRepositoryTrimTest {
         assertNull(repository.getSessionById(sessionId)?.endedAtEpochMs)
         assertTrue(events.all { it.startTimeEpochMs < 6_000L })
     }
+
+    @Test
+    fun trimAnimalToCutoff_onlyAffectsSelectedAnimal() = runTest {
+        val sessionId = repository.startSession(
+            startedAtEpochMs = 0L,
+            animalCount = 2,
+            animalIds = listOf("Animal 1", "Animal 2"),
+            animalColors = listOf(AnimalColor.BLUE, AnimalColor.GREEN)
+        )
+        val animalOneEventId = repository.startEvent(
+            sessionId = sessionId,
+            animalId = "Animal 1",
+            behaviour = Behavior.GRAZING,
+            startTimeEpochMs = 1_000L
+        )
+        repository.endEvent(animalOneEventId, 9_000L)
+        repository.startEvent(
+            sessionId = sessionId,
+            animalId = "Animal 2",
+            behaviour = Behavior.WALKING,
+            startTimeEpochMs = 2_000L
+        )
+
+        repository.trimAnimalToCutoff(
+            sessionId = sessionId,
+            animalId = "Animal 1",
+            cutoffEpochMs = 6_000L
+        )
+
+        val events = repository.getEventsForSession(sessionId)
+        val animalOneEvent = events.first { it.animalId == "Animal 1" }
+        val animalTwoEvent = events.first { it.animalId == "Animal 2" }
+
+        assertEquals(6_000L, animalOneEvent.endTimeEpochMs)
+        assertNull(animalTwoEvent.endTimeEpochMs)
+        assertNull(repository.getSessionById(sessionId)?.endedAtEpochMs)
+    }
 }

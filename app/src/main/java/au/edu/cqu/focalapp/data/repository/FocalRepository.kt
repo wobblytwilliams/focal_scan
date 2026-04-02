@@ -72,6 +72,14 @@ class FocalRepository(
         dao.trimSessionToCutoff(sessionId, cutoffEpochMs)
     }
 
+    suspend fun trimAnimalToCutoff(
+        sessionId: Long,
+        animalId: String,
+        cutoffEpochMs: Long
+    ) {
+        dao.trimAnimalToCutoff(sessionId, animalId, cutoffEpochMs)
+    }
+
     suspend fun getEventsForSession(sessionId: Long): List<BehaviorEventEntity> {
         return dao.getEventsForSession(sessionId)
     }

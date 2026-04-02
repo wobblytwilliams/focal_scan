@@ -14,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
@@ -205,7 +204,6 @@ fun FocalSamplingScreen(
                 uiState = uiState,
                 onStartSession = viewModel::requestStartSession,
                 onStopSession = viewModel::stopSession,
-                onDeleteLast30Seconds = viewModel::deleteLast30Seconds,
                 onExportCsv = viewModel::exportCsv,
                 onConfigureAnimals = viewModel::openAnimalCountDialog
             )
@@ -217,6 +215,9 @@ fun FocalSamplingScreen(
                     animalSectionHeight = animalSectionHeight,
                     onBehaviourPressed = { slotIndex, behaviour ->
                         viewModel.onBehaviourPressed(slotIndex, behaviour)
+                    },
+                    onDeleteLast30Seconds = { slotIndex ->
+                        viewModel.deleteLast30Seconds(slotIndex)
                     }
                 )
             }
@@ -320,7 +321,8 @@ private fun AnimalPanelsSection(
     animals: List<AnimalPanelUiState>,
     sessionActive: Boolean,
     animalSectionHeight: Dp,
-    onBehaviourPressed: (Int, Behavior) -> Unit
+    onBehaviourPressed: (Int, Behavior) -> Unit,
+    onDeleteLast30Seconds: (Int) -> Unit
 ) {
     val sectionSpacing = when (animals.size) {
         1 -> 16.dp
@@ -342,6 +344,9 @@ private fun AnimalPanelsSection(
                 onBehaviourPressed = { behaviour ->
                     onBehaviourPressed(animal.slotIndex, behaviour)
                 },
+                onDeleteLast30Seconds = {
+                    onDeleteLast30Seconds(animal.slotIndex)
+                },
                 modifier = Modifier.weight(1f)
             )
         }
@@ -354,7 +359,6 @@ private fun SessionControlsCard(
     uiState: FocalSamplingUiState,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
-    onDeleteLast30Seconds: () -> Unit,
     onExportCsv: () -> Unit,
     onConfigureAnimals: () -> Unit
 ) {
@@ -416,17 +420,6 @@ private fun SessionControlsCard(
                     enabled = uiState.isSessionActive
                 ) {
                     Text("Stop Session")
-                }
-
-                Button(
-                    onClick = onDeleteLast30Seconds,
-                    enabled = uiState.isSessionActive,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError
-                    )
-                ) {
-                    Text("Delete Last 30s")
                 }
 
                 OutlinedButton(
