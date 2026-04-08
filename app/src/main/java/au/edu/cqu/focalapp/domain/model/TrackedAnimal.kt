@@ -35,6 +35,6 @@ enum class TrackedAnimal(
             return fromStableKey(raw) ?: fromDisplayName(raw)
         }
 
-        fun defaultSelection(): List<TrackedAnimal> = defaults()
+        fun defaultSelection(): List<TrackedAnimal> = emptyList()
     }
 }

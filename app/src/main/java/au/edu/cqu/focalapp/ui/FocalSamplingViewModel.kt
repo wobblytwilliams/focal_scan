@@ -428,12 +428,8 @@ class FocalSamplingViewModel(
                     latestSession != null -> {
                         val selectedAnimals = if (hasUserSelectionOverride) {
                             currentState.selectedTrackedAnimals
-                        } else if (
-                            latestSession.sessionFormatVersion >= SessionFormatVersion.TRACKED_ANIMALS
-                        ) {
-                            trackedAnimalsForSession(latestSession)
                         } else {
-                            TrackedAnimal.defaultSelection()
+                            emptyList()
                         }
 
                         FocalSamplingUiState(
@@ -451,7 +447,7 @@ class FocalSamplingViewModel(
                             currentState.copy(showTimeWarning = false)
                         } else {
                             FocalSamplingUiState(
-                                animals = AnimalPanelUiState.defaults(TrackedAnimal.defaultSelection())
+                                animals = AnimalPanelUiState.defaults()
                             )
                         }
                     }

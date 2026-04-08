@@ -50,11 +50,24 @@ class FocalSamplingViewModelTest {
     }
 
     @Test
+    fun initialState_startsWithNoAnimalsSelected() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.visibleAnimals.isEmpty())
+        assertEquals(
+            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN, TrackedAnimal.YELLOW),
+            viewModel.uiState.value.graph.groups.map(AnimalGraphGroupUiState::trackedAnimal)
+        )
+    }
+
+    @Test
     fun toggleAnimalSelection_filtersVisibleAnimalsButKeepsAllGraphGroups() = runTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
 
-        viewModel.toggleAnimalSelection(TrackedAnimal.YELLOW)
+        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        viewModel.toggleAnimalSelection(TrackedAnimal.GREEN)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -72,6 +85,8 @@ class FocalSamplingViewModelTest {
     fun requestStartSession_showsTimeWarningBeforeStarting() = runTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
+        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        advanceUntilIdle()
 
         viewModel.requestStartSession()
 
@@ -82,7 +97,8 @@ class FocalSamplingViewModelTest {
     fun confirmTimeWarning_startsSessionWithSelectedAnimals() = runTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
-        viewModel.toggleAnimalSelection(TrackedAnimal.YELLOW)
+        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        viewModel.toggleAnimalSelection(TrackedAnimal.GREEN)
         advanceUntilIdle()
 
         viewModel.requestStartSession()
@@ -117,6 +133,8 @@ class FocalSamplingViewModelTest {
     fun dismissTimeWarning_returnsToMainScreen() = runTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
+        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        advanceUntilIdle()
 
         viewModel.requestStartSession()
         viewModel.dismissTimeWarning()
@@ -129,7 +147,8 @@ class FocalSamplingViewModelTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
 
-        viewModel.toggleAnimalSelection(TrackedAnimal.YELLOW)
+        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        viewModel.toggleAnimalSelection(TrackedAnimal.GREEN)
         advanceUntilIdle()
         viewModel.requestStartSession()
         viewModel.confirmTimeWarning()
@@ -149,7 +168,8 @@ class FocalSamplingViewModelTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
 
-        viewModel.toggleAnimalSelection(TrackedAnimal.YELLOW)
+        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        viewModel.toggleAnimalSelection(TrackedAnimal.GREEN)
         advanceUntilIdle()
         viewModel.requestStartSession()
         viewModel.confirmTimeWarning()
@@ -191,9 +211,6 @@ class FocalSamplingViewModelTest {
     @Test
     fun requestStartSession_doesNotOpenWarningWhenNothingIsSelected() = runTest {
         val viewModel = createViewModel()
-        advanceUntilIdle()
-
-        TrackedAnimal.entries.forEach(viewModel::toggleAnimalSelection)
         advanceUntilIdle()
         viewModel.requestStartSession()
         advanceUntilIdle()
