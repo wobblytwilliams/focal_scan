@@ -50,7 +50,7 @@ class FocalSamplingViewModelTest {
     }
 
     @Test
-    fun toggleAnimalSelection_filtersVisibleAnimalsAndGraphGroups() = runTest {
+    fun toggleAnimalSelection_filtersVisibleAnimalsButKeepsAllGraphGroups() = runTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
 
@@ -63,7 +63,7 @@ class FocalSamplingViewModelTest {
             state.visibleAnimals.map(AnimalPanelUiState::trackedAnimal)
         )
         assertEquals(
-            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
+            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN, TrackedAnimal.YELLOW),
             state.graph.groups.map(AnimalGraphGroupUiState::trackedAnimal)
         )
     }
@@ -200,6 +200,10 @@ class FocalSamplingViewModelTest {
 
         assertFalse(viewModel.uiState.value.showTimeWarning)
         assertTrue(viewModel.uiState.value.visibleAnimals.isEmpty())
+        assertEquals(
+            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN, TrackedAnimal.YELLOW),
+            viewModel.uiState.value.graph.groups.map(AnimalGraphGroupUiState::trackedAnimal)
+        )
     }
 
     private fun createViewModel(): FocalSamplingViewModel {

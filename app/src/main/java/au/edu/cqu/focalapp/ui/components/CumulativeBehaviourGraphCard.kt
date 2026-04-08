@@ -60,7 +60,7 @@ fun CumulativeBehaviourGraphCard(
             )
 
             Text(
-                text = "Grouped bars show minutes for Walking, Grazing, and Idle across saved tablet sessions. The current session updates live.",
+                text = "Grouped bars show minutes for Walking, Grazing, and Idle across saved tablet sessions. Blue, Green, and Yellow always stay visible here as a focus guide, and the current session updates live.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

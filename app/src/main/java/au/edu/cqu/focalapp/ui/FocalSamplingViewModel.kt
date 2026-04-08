@@ -522,24 +522,24 @@ class FocalSamplingViewModel(
     ): FocalSamplingUiState {
         return state.copy(
             graph = buildGraphUiState(
-                selectedAnimals = state.selectedTrackedAnimals,
+                trackedAnimals = TrackedAnimal.entries.toList(),
                 nowEpochMs = nowEpochMs
             )
         )
     }
 
     private suspend fun buildGraphUiState(
-        selectedAnimals: List<TrackedAnimal>,
+        trackedAnimals: List<TrackedAnimal>,
         nowEpochMs: Long
     ): BehaviourGraphUiState {
-        if (selectedAnimals.isEmpty()) {
+        if (trackedAnimals.isEmpty()) {
             return BehaviourGraphUiState()
         }
 
         val totalsByAnimal = repository.getCumulativeBehaviourTotals(nowEpochMs)
             .associateBy(AnimalBehaviourTotals::trackedAnimal)
 
-        val groups = selectedAnimals.map { trackedAnimal ->
+        val groups = trackedAnimals.map { trackedAnimal ->
             val totals = totalsByAnimal[trackedAnimal] ?: AnimalBehaviourTotals(trackedAnimal)
             AnimalGraphGroupUiState(
                 trackedAnimal = trackedAnimal,
