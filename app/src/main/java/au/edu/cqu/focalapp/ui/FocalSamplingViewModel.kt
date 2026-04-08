@@ -2,14 +2,18 @@ package au.edu.cqu.focalapp.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import au.edu.cqu.focalapp.data.local.SamplingSessionEntity
+import au.edu.cqu.focalapp.data.local.SessionFormatVersion
 import au.edu.cqu.focalapp.data.repository.FocalRepository
-import au.edu.cqu.focalapp.domain.model.AnimalColor
+import au.edu.cqu.focalapp.domain.model.AnimalBehaviourTotals
 import au.edu.cqu.focalapp.domain.model.Behavior
+import au.edu.cqu.focalapp.domain.model.GraphBehaviourCategory
+import au.edu.cqu.focalapp.domain.model.TrackedAnimal
 import au.edu.cqu.focalapp.util.CsvExportPayload
 import au.edu.cqu.focalapp.util.CsvExporter
 import au.edu.cqu.focalapp.util.DateTimeFormats
-import au.edu.cqu.focalapp.util.SessionAnimalColorsCodec
 import au.edu.cqu.focalapp.util.SessionAnimalIdsCodec
+import au.edu.cqu.focalapp.util.SessionTrackedAnimalsCodec
 import au.edu.cqu.focalapp.util.TimeProvider
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,69 +52,7 @@ class FocalSamplingViewModel(
     }
 
     fun dismissTimeWarning() {
-        _uiState.update {
-            it.copy(
-                showTimeWarning = false,
-                showStartSessionDialog = false
-            )
-        }
-    }
-
-    fun confirmTimeWarning() {
-        val state = _uiState.value
-        if (state.isSessionActive) {
-            return
-        }
-
-        if (state.configuredAnimalCount == null) {
-            openAnimalCountDialog()
-            return
-        }
-
-        _uiState.update {
-            it.copy(
-                showTimeWarning = false,
-                showAnimalCountDialog = false,
-                showStartSessionDialog = true
-            )
-        }
-    }
-
-    fun openAnimalCountDialog() {
-        if (_uiState.value.isSessionActive) {
-            return
-        }
-
-        _uiState.update {
-            it.copy(
-                showTimeWarning = false,
-                showAnimalCountDialog = true,
-                showStartSessionDialog = false
-            )
-        }
-    }
-
-    fun dismissAnimalCountDialog() {
-        _uiState.update { it.copy(showAnimalCountDialog = false) }
-    }
-
-    fun setAnimalCount(count: Int) {
-        if (count !in 1..3) {
-            return
-        }
-
-        _uiState.update { state ->
-            state.copy(
-                configuredAnimalCount = count,
-                showTimeWarning = false,
-                showAnimalCountDialog = false,
-                showStartSessionDialog = false,
-                animals = buildAnimalsForCount(
-                    currentAnimals = state.animals,
-                    animalCount = count
-                )
-            )
-        }
+        _uiState.update { it.copy(showTimeWarning = false) }
     }
 
     fun requestStartSession() {
@@ -119,25 +61,17 @@ class FocalSamplingViewModel(
             return
         }
 
-        if (state.configuredAnimalCount == null) {
-            openAnimalCountDialog()
+        if (state.visibleAnimals.isEmpty()) {
+            viewModelScope.launch {
+                _events.emit(UiEvent.ShowMessage("Select at least one animal before starting a session."))
+            }
             return
         }
 
-        _uiState.update {
-            it.copy(
-                showTimeWarning = true,
-                showAnimalCountDialog = false,
-                showStartSessionDialog = false
-            )
-        }
+        _uiState.update { it.copy(showTimeWarning = true) }
     }
 
-    fun dismissStartSessionDialog() {
-        _uiState.update { it.copy(showStartSessionDialog = false) }
-    }
-
-    fun startSession(animalIds: List<String>, animalColors: List<AnimalColor>) {
+    fun confirmTimeWarning() {
         viewModelScope.launch {
             actionMutex.withLock {
                 val state = _uiState.value
@@ -145,49 +79,48 @@ class FocalSamplingViewModel(
                     return@withLock
                 }
 
-                val animalCount = state.configuredAnimalCount
-                if (animalCount == null) {
-                    _uiState.update {
-                        it.copy(
-                            showTimeWarning = false,
-                            showAnimalCountDialog = true,
-                            showStartSessionDialog = false
-                        )
-                    }
+                if (state.visibleAnimals.isEmpty()) {
+                    _uiState.value = withGraph(
+                        state.copy(showTimeWarning = false),
+                        nowEpochMs = timeProvider.nowEpochMillis()
+                    )
+                    _events.emit(UiEvent.ShowMessage("Select at least one animal before starting a session."))
                     return@withLock
                 }
 
-                val normalizedIds = List(animalCount) { index ->
-                    normalizedAnimalId(animalIds.getOrNull(index).orEmpty(), index)
-                }
-                val normalizedColors = List(animalCount) { index ->
-                    animalColors.getOrNull(index) ?: AnimalColor.defaultForSlot(index)
-                }
-                val now = timeProvider.nowEpochMillis()
-                val sessionId = repository.startSession(
-                    startedAtEpochMs = now,
-                    animalCount = animalCount,
-                    animalIds = normalizedIds,
-                    animalColors = normalizedColors
-                )
+                startSelectedSessionLocked(state)
+            }
+        }
+    }
 
-                _uiState.value = state.copy(
-                    isSessionActive = true,
-                    activeSessionId = sessionId,
-                    activeSessionStartedAtEpochMs = now,
-                    exportSessionId = sessionId,
-                    showTimeWarning = false,
-                    showAnimalCountDialog = false,
-                    showStartSessionDialog = false,
-                    animals = buildAnimalsForCount(
-                        currentAnimals = state.animals,
-                        animalCount = animalCount,
-                        configuredIds = normalizedIds,
-                        configuredColors = normalizedColors
-                    )
-                )
+    fun toggleAnimalSelection(trackedAnimal: TrackedAnimal) {
+        viewModelScope.launch {
+            actionMutex.withLock {
+                val state = _uiState.value
+                if (state.isSessionActive) {
+                    return@withLock
+                }
 
-                _events.emit(UiEvent.ShowMessage("Session #$sessionId started."))
+                val updatedAnimals = state.animals.map { animal ->
+                    if (animal.trackedAnimal == trackedAnimal) {
+                        animal.copy(
+                            isSelected = !animal.isSelected,
+                            activeBehaviour = null,
+                            activeEventId = null,
+                            activeStartedAtEpochMs = null
+                        )
+                    } else {
+                        animal
+                    }
+                }
+
+                _uiState.value = withGraph(
+                    state.copy(
+                        showTimeWarning = false,
+                        animals = updatedAnimals
+                    ),
+                    nowEpochMs = timeProvider.nowEpochMillis()
+                )
             }
         }
     }
@@ -217,13 +150,16 @@ class FocalSamplingViewModel(
                     )
                 }
 
-                _uiState.value = state.copy(
-                    isSessionActive = false,
-                    activeSessionId = null,
-                    activeSessionStartedAtEpochMs = null,
-                    exportSessionId = sessionId,
-                    showStartSessionDialog = false,
-                    animals = closedAnimals
+                _uiState.value = withGraph(
+                    state.copy(
+                        isSessionActive = false,
+                        activeSessionId = null,
+                        activeSessionStartedAtEpochMs = null,
+                        exportSessionId = sessionId,
+                        showTimeWarning = false,
+                        animals = closedAnimals
+                    ),
+                    nowEpochMs = now
                 )
 
                 _events.emit(
@@ -242,35 +178,37 @@ class FocalSamplingViewModel(
                 val sessionId = state.activeSessionId
                 val animal = state.animals.getOrNull(slotIndex)
 
-                if (!state.isSessionActive || sessionId == null || animal == null) {
+                if (!state.isSessionActive || sessionId == null || animal == null || !animal.isSelected) {
                     return@withLock
                 }
 
-                val cutoffEpochMs = timeProvider.nowEpochMillis() - ROLLBACK_WINDOW_MS
-                val normalizedAnimalId = normalizedAnimalId(animal.animalId, slotIndex)
+                val now = timeProvider.nowEpochMillis()
+                val cutoffEpochMs = now - ROLLBACK_WINDOW_MS
                 repository.trimAnimalToCutoff(
                     sessionId = sessionId,
-                    animalId = normalizedAnimalId,
+                    animalId = animal.animalId,
                     cutoffEpochMs = cutoffEpochMs
                 )
 
                 val updatedAnimals = state.animals.toMutableList().apply {
                     this[slotIndex] = animal.copy(
-                        animalId = normalizedAnimalId,
                         activeBehaviour = null,
                         activeEventId = null,
                         activeStartedAtEpochMs = null
                     )
                 }
 
-                _uiState.value = state.copy(
-                    animals = updatedAnimals,
-                    exportSessionId = sessionId
+                _uiState.value = withGraph(
+                    state.copy(
+                        animals = updatedAnimals,
+                        exportSessionId = sessionId
+                    ),
+                    nowEpochMs = now
                 )
 
                 _events.emit(
                     UiEvent.ShowMessage(
-                        "Deleted the last 30 seconds for $normalizedAnimalId. Logging for this animal is paused."
+                        "Deleted the last 30 seconds for ${animal.trackedAnimal.displayName}. Logging for this animal is paused."
                     )
                 )
             }
@@ -288,21 +226,23 @@ class FocalSamplingViewModel(
                     return@withLock
                 }
 
-                val animal = state.animals.getOrNull(slotIndex) ?: return@withLock
+                val animal = state.animals.getOrNull(slotIndex)
+                if (animal == null || !animal.isSelected) {
+                    return@withLock
+                }
+
                 val now = timeProvider.nowEpochMillis()
-                val normalizedAnimalId = normalizedAnimalId(animal.animalId, slotIndex)
 
                 val updatedAnimal = when {
                     animal.activeBehaviour == null -> {
                         val newEventId = repository.startEvent(
                             sessionId = sessionId,
-                            animalId = normalizedAnimalId,
+                            animalId = animal.animalId,
                             behaviour = behaviour,
                             startTimeEpochMs = now
                         )
 
                         animal.copy(
-                            animalId = normalizedAnimalId,
                             activeBehaviour = behaviour,
                             activeEventId = newEventId,
                             activeStartedAtEpochMs = now
@@ -313,7 +253,6 @@ class FocalSamplingViewModel(
                         animal.activeEventId?.let { repository.endEvent(it, now) }
 
                         animal.copy(
-                            animalId = normalizedAnimalId,
                             activeBehaviour = null,
                             activeEventId = null,
                             activeStartedAtEpochMs = null
@@ -325,13 +264,12 @@ class FocalSamplingViewModel(
 
                         val newEventId = repository.startEvent(
                             sessionId = sessionId,
-                            animalId = normalizedAnimalId,
+                            animalId = animal.animalId,
                             behaviour = behaviour,
                             startTimeEpochMs = now
                         )
 
                         animal.copy(
-                            animalId = normalizedAnimalId,
                             activeBehaviour = behaviour,
                             activeEventId = newEventId,
                             activeStartedAtEpochMs = now
@@ -343,9 +281,12 @@ class FocalSamplingViewModel(
                     this[slotIndex] = updatedAnimal
                 }
 
-                _uiState.value = state.copy(
-                    animals = updatedAnimals,
-                    exportSessionId = sessionId
+                _uiState.value = withGraph(
+                    state.copy(
+                        animals = updatedAnimals,
+                        exportSessionId = sessionId
+                    ),
+                    nowEpochMs = now
                 )
             }
         }
@@ -389,111 +330,227 @@ class FocalSamplingViewModel(
         }
     }
 
+    fun refreshGraph() {
+        viewModelScope.launch {
+            actionMutex.withLock {
+                val state = _uiState.value
+                _uiState.value = withGraph(
+                    state,
+                    nowEpochMs = timeProvider.nowEpochMillis()
+                )
+            }
+        }
+    }
+
+    private suspend fun startSelectedSessionLocked(state: FocalSamplingUiState) {
+        val selectedAnimals = state.selectedTrackedAnimals
+        val now = timeProvider.nowEpochMillis()
+        val sessionId = repository.startSession(
+            startedAtEpochMs = now,
+            trackedAnimals = selectedAnimals
+        )
+
+        _uiState.value = withGraph(
+            state.copy(
+                isSessionActive = true,
+                activeSessionId = sessionId,
+                activeSessionStartedAtEpochMs = now,
+                exportSessionId = sessionId,
+                showTimeWarning = false,
+                animals = buildAnimals(
+                    currentAnimals = state.animals,
+                    selectedAnimals = selectedAnimals,
+                    resetActiveState = true
+                )
+            ),
+            nowEpochMs = now
+        )
+
+        _events.emit(UiEvent.ShowMessage("Session #$sessionId started."))
+    }
+
     private fun restoreExistingSession() {
         viewModelScope.launch {
             actionMutex.withLock {
                 val activeSnapshot = repository.getActiveSessionSnapshot()
                 val latestSession = repository.getLatestSession()
+                val restoredState = when {
+                    activeSnapshot != null -> {
+                        val selectedAnimals = trackedAnimalsForSession(activeSnapshot.session)
+                        val restoredAnimals = buildAnimals(
+                            currentAnimals = AnimalPanelUiState.defaults(selectedAnimals),
+                            selectedAnimals = selectedAnimals,
+                            resetActiveState = false
+                        ).toMutableList()
 
-                if (activeSnapshot != null) {
-                    val configuredIds = SessionAnimalIdsCodec.decode(activeSnapshot.session.animalIdsJson)
-                    val configuredColors = SessionAnimalColorsCodec.decode(activeSnapshot.session.animalColorsJson)
-                    val restoredAnimals = buildAnimalsForCount(
-                        currentAnimals = AnimalPanelUiState.defaults(),
-                        animalCount = activeSnapshot.session.animalCount,
-                        configuredIds = configuredIds,
-                        configuredColors = configuredColors,
-                        resetActiveState = false
-                    ).toMutableList()
-
-                    activeSnapshot.openEvents
-                        .take(activeSnapshot.session.animalCount)
-                        .forEach { event ->
-                            val configuredIndex = configuredIds.indexOfFirst { it == event.animalId }
-                            val targetIndex = if (configuredIndex in restoredAnimals.indices) {
-                                configuredIndex
-                            } else {
-                                restoredAnimals.indexOfFirst { it.activeEventId == null }
+                        if (activeSnapshot.session.sessionFormatVersion >= SessionFormatVersion.TRACKED_ANIMALS) {
+                            activeSnapshot.openEvents.forEach { event ->
+                                val trackedAnimal = TrackedAnimal.fromStoredAnimalId(event.animalId) ?: return@forEach
+                                val targetIndex = trackedAnimal.ordinal
+                                if (targetIndex in restoredAnimals.indices) {
+                                    restoredAnimals[targetIndex] = restoredAnimals[targetIndex].copy(
+                                        activeBehaviour = event.behaviour,
+                                        activeEventId = event.id,
+                                        activeStartedAtEpochMs = event.startTimeEpochMs
+                                    )
+                                }
                             }
-
-                            if (targetIndex in restoredAnimals.indices) {
-                                restoredAnimals[targetIndex] = restoredAnimals[targetIndex].copy(
-                                    animalId = event.animalId,
-                                    activeBehaviour = event.behaviour,
-                                    activeEventId = event.id,
-                                    activeStartedAtEpochMs = event.startTimeEpochMs
-                                )
-                            }
+                        } else {
+                            activeSnapshot.openEvents
+                                .take(selectedAnimals.size)
+                                .forEachIndexed { index, event ->
+                                    val trackedAnimal = selectedAnimals[index]
+                                    val targetIndex = trackedAnimal.ordinal
+                                    restoredAnimals[targetIndex] = restoredAnimals[targetIndex].copy(
+                                        activeBehaviour = event.behaviour,
+                                        activeEventId = event.id,
+                                        activeStartedAtEpochMs = event.startTimeEpochMs
+                                    )
+                                }
                         }
 
-                    _uiState.value = FocalSamplingUiState(
-                        isSessionActive = true,
-                        activeSessionId = activeSnapshot.session.id,
-                        activeSessionStartedAtEpochMs = activeSnapshot.session.startedAtEpochMs,
-                        exportSessionId = activeSnapshot.session.id,
-                        configuredAnimalCount = activeSnapshot.session.animalCount,
-                        showTimeWarning = false,
-                        showAnimalCountDialog = false,
-                        showStartSessionDialog = false,
-                        animals = restoredAnimals
-                    )
-                } else if (latestSession != null) {
-                    val configuredIds = SessionAnimalIdsCodec.decode(latestSession.animalIdsJson)
-                    val configuredColors = SessionAnimalColorsCodec.decode(latestSession.animalColorsJson)
-                    _uiState.update {
-                        it.copy(
-                            exportSessionId = latestSession.id,
-                            configuredAnimalCount = latestSession.animalCount,
+                        FocalSamplingUiState(
+                            isSessionActive = true,
+                            activeSessionId = activeSnapshot.session.id,
+                            activeSessionStartedAtEpochMs = activeSnapshot.session.startedAtEpochMs,
+                            exportSessionId = activeSnapshot.session.id,
                             showTimeWarning = false,
-                            showAnimalCountDialog = false,
-                            showStartSessionDialog = false,
-                            animals = buildAnimalsForCount(
-                                currentAnimals = it.animals,
-                                animalCount = latestSession.animalCount,
-                                configuredIds = configuredIds,
-                                configuredColors = configuredColors
+                            animals = restoredAnimals
+                        )
+                    }
+
+                    latestSession != null -> {
+                        val selectedAnimals = if (
+                            latestSession.sessionFormatVersion >= SessionFormatVersion.TRACKED_ANIMALS
+                        ) {
+                            trackedAnimalsForSession(latestSession)
+                        } else {
+                            TrackedAnimal.defaultSelection()
+                        }
+
+                        FocalSamplingUiState(
+                            exportSessionId = latestSession.id,
+                            showTimeWarning = false,
+                            animals = buildAnimals(
+                                currentAnimals = AnimalPanelUiState.defaults(selectedAnimals),
+                                selectedAnimals = selectedAnimals
                             )
                         )
                     }
+
+                    else -> {
+                        FocalSamplingUiState(
+                            animals = AnimalPanelUiState.defaults(TrackedAnimal.defaultSelection())
+                        )
+                    }
                 }
+
+                _uiState.value = withGraph(
+                    restoredState,
+                    nowEpochMs = timeProvider.nowEpochMillis()
+                )
             }
         }
     }
 
-    private fun normalizedAnimalId(input: String, slotIndex: Int): String {
-        return input.trim().ifEmpty { "Animal ${slotIndex + 1}" }
+    private fun trackedAnimalsForSession(session: SamplingSessionEntity): List<TrackedAnimal> {
+        val decodedTrackedAnimals = normalizeTrackedAnimals(
+            SessionTrackedAnimalsCodec.decode(session.trackedAnimalsJson)
+        )
+        if (decodedTrackedAnimals.isNotEmpty()) {
+            return decodedTrackedAnimals
+        }
+
+        val decodedLegacyIds = normalizeTrackedAnimals(
+            SessionAnimalIdsCodec.decode(session.animalIdsJson).mapNotNull(TrackedAnimal::fromStoredAnimalId)
+        )
+        if (decodedLegacyIds.isNotEmpty()) {
+            return decodedLegacyIds
+        }
+
+        return TrackedAnimal.entries.take(session.animalCount.coerceIn(0, TrackedAnimal.entries.size))
     }
 
-    private fun buildAnimalsForCount(
+    private fun normalizeTrackedAnimals(trackedAnimals: List<TrackedAnimal>): List<TrackedAnimal> {
+        return TrackedAnimal.entries.filter { it in trackedAnimals }
+    }
+
+    private fun buildAnimals(
         currentAnimals: List<AnimalPanelUiState>,
-        animalCount: Int,
-        configuredIds: List<String> = emptyList(),
-        configuredColors: List<AnimalColor> = emptyList(),
+        selectedAnimals: List<TrackedAnimal>,
         resetActiveState: Boolean = true
     ): List<AnimalPanelUiState> {
-        val defaults = AnimalPanelUiState.defaults()
-
-        return defaults.mapIndexed { index, default ->
-            if (index < animalCount) {
-                val current = currentAnimals.getOrNull(index) ?: default
-                val configuredAnimal = current.copy(
-                    animalId = configuredIds.getOrNull(index)
-                        ?: current.animalId.trim().ifEmpty { "Animal ${index + 1}" },
-                    animalColor = configuredColors.getOrNull(index) ?: current.animalColor
+        return TrackedAnimal.entries.mapIndexed { index, trackedAnimal ->
+            val currentAnimal = currentAnimals.getOrNull(index)
+                ?: AnimalPanelUiState(
+                    slotIndex = index,
+                    trackedAnimal = trackedAnimal
                 )
 
-                if (resetActiveState) {
-                    configuredAnimal.copy(
-                        activeBehaviour = null,
-                        activeEventId = null,
-                        activeStartedAtEpochMs = null
-                    )
-                } else {
-                    configuredAnimal
-                }
+            val updatedAnimal = currentAnimal.copy(
+                trackedAnimal = trackedAnimal,
+                isSelected = trackedAnimal in selectedAnimals
+            )
+
+            if (resetActiveState || !updatedAnimal.isSelected) {
+                updatedAnimal.copy(
+                    activeBehaviour = null,
+                    activeEventId = null,
+                    activeStartedAtEpochMs = null
+                )
             } else {
-                default
+                updatedAnimal
             }
         }
+    }
+
+    private suspend fun withGraph(
+        state: FocalSamplingUiState,
+        nowEpochMs: Long
+    ): FocalSamplingUiState {
+        return state.copy(
+            graph = buildGraphUiState(
+                selectedAnimals = state.selectedTrackedAnimals,
+                nowEpochMs = nowEpochMs
+            )
+        )
+    }
+
+    private suspend fun buildGraphUiState(
+        selectedAnimals: List<TrackedAnimal>,
+        nowEpochMs: Long
+    ): BehaviourGraphUiState {
+        if (selectedAnimals.isEmpty()) {
+            return BehaviourGraphUiState()
+        }
+
+        val totalsByAnimal = repository.getCumulativeBehaviourTotals(nowEpochMs)
+            .associateBy(AnimalBehaviourTotals::trackedAnimal)
+
+        val groups = selectedAnimals.map { trackedAnimal ->
+            val totals = totalsByAnimal[trackedAnimal] ?: AnimalBehaviourTotals(trackedAnimal)
+            AnimalGraphGroupUiState(
+                trackedAnimal = trackedAnimal,
+                bars = listOf(
+                    AnimalGraphBarUiState(
+                        category = GraphBehaviourCategory.WALKING,
+                        minutes = totals.walkingDurationMs / 60_000f
+                    ),
+                    AnimalGraphBarUiState(
+                        category = GraphBehaviourCategory.GRAZING,
+                        minutes = totals.grazingDurationMs / 60_000f
+                    ),
+                    AnimalGraphBarUiState(
+                        category = GraphBehaviourCategory.IDLE,
+                        minutes = totals.idleDurationMs / 60_000f
+                    )
+                )
+            )
+        }
+
+        return BehaviourGraphUiState(
+            groups = groups,
+            yAxisMaxMinutes = calculateGraphAxisMaxMinutes(groups)
+        )
     }
 }

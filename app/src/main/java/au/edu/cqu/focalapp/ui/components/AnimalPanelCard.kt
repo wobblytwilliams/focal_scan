@@ -91,7 +91,7 @@ fun AnimalPanelCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Animal ${animal.slotIndex + 1}",
+                    text = animal.trackedAnimal.displayName,
                     style = titleStyle,
                     fontWeight = FontWeight.SemiBold,
                     color = titleColor
@@ -108,11 +108,11 @@ fun AnimalPanelCard(
             }
 
             Text(
-                text = "Animal ID: ${animal.animalId}",
+                text = "Tap a behaviour to start or switch logging for ${animal.trackedAnimal.displayName.lowercase()}.",
                 style = idStyle,
                 fontWeight = FontWeight.Medium,
-                color = titleColor,
-                maxLines = 1,
+                color = supportingTextColor,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
 

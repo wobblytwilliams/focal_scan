@@ -3,10 +3,13 @@ package au.edu.cqu.focalapp.data.repository
 import au.edu.cqu.focalapp.data.local.BehaviorEventEntity
 import au.edu.cqu.focalapp.data.local.FocalDao
 import au.edu.cqu.focalapp.data.local.SamplingSessionEntity
-import au.edu.cqu.focalapp.domain.model.AnimalColor
+import au.edu.cqu.focalapp.data.local.SessionFormatVersion
+import au.edu.cqu.focalapp.domain.model.AnimalBehaviourTotals
 import au.edu.cqu.focalapp.domain.model.Behavior
+import au.edu.cqu.focalapp.domain.model.TrackedAnimal
 import au.edu.cqu.focalapp.util.SessionAnimalColorsCodec
 import au.edu.cqu.focalapp.util.SessionAnimalIdsCodec
+import au.edu.cqu.focalapp.util.SessionTrackedAnimalsCodec
 
 data class ActiveSessionSnapshot(
     val session: SamplingSessionEntity,
@@ -30,15 +33,17 @@ class FocalRepository(
 
     suspend fun startSession(
         startedAtEpochMs: Long,
-        animalCount: Int,
-        animalIds: List<String>,
-        animalColors: List<AnimalColor>
+        trackedAnimals: List<TrackedAnimal>
     ): Long {
+        val animalIds = trackedAnimals.map(TrackedAnimal::displayName)
+        val animalColors = trackedAnimals.map(TrackedAnimal::animalColor)
         return dao.insertSession(
             SamplingSessionEntity(
-                animalCount = animalCount,
+                animalCount = trackedAnimals.size,
                 animalIdsJson = SessionAnimalIdsCodec.encode(animalIds),
                 animalColorsJson = SessionAnimalColorsCodec.encode(animalColors),
+                trackedAnimalsJson = SessionTrackedAnimalsCodec.encode(trackedAnimals),
+                sessionFormatVersion = SessionFormatVersion.TRACKED_ANIMALS,
                 startedAtEpochMs = startedAtEpochMs
             )
         )
@@ -82,5 +87,30 @@ class FocalRepository(
 
     suspend fun getEventsForSession(sessionId: Long): List<BehaviorEventEntity> {
         return dao.getEventsForSession(sessionId)
+    }
+
+    suspend fun getCumulativeBehaviourTotals(nowEpochMs: Long): List<AnimalBehaviourTotals> {
+        val totalsByAnimal = dao.getEventsForSessionFormat(
+            minimumSessionFormatVersion = SessionFormatVersion.TRACKED_ANIMALS
+        ).fold(
+            initial = TrackedAnimal.entries.associateWith { trackedAnimal ->
+                AnimalBehaviourTotals(trackedAnimal)
+            }
+        ) { totals, event ->
+            val trackedAnimal = TrackedAnimal.fromStoredAnimalId(event.animalId) ?: return@fold totals
+            val endTimeEpochMs = event.endTimeEpochMs ?: nowEpochMs
+            val durationMs = (endTimeEpochMs - event.startTimeEpochMs).coerceAtLeast(0L)
+
+            totals + (
+                trackedAnimal to totals.getValue(trackedAnimal).add(
+                    behaviour = event.behaviour,
+                    durationMs = durationMs
+                )
+            )
+        }
+
+        return TrackedAnimal.entries.map { trackedAnimal ->
+            totalsByAnimal.getValue(trackedAnimal)
+        }
     }
 }

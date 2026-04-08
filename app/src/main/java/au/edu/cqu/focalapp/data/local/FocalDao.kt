@@ -34,6 +34,19 @@ interface FocalDao {
     @Query("SELECT * FROM events WHERE session_id = :sessionId ORDER BY start_time ASC, id ASC")
     suspend fun getEventsForSession(sessionId: Long): List<BehaviorEventEntity>
 
+    @Query(
+        """
+        SELECT events.*
+        FROM events
+        INNER JOIN sessions ON sessions.id = events.session_id
+        WHERE sessions.session_format_version >= :minimumSessionFormatVersion
+        ORDER BY events.start_time ASC, events.id ASC
+        """
+    )
+    suspend fun getEventsForSessionFormat(
+        minimumSessionFormatVersion: Int
+    ): List<BehaviorEventEntity>
+
     @Query("DELETE FROM events WHERE session_id = :sessionId AND start_time >= :cutoffEpochMs")
     suspend fun deleteEventsStartingFrom(sessionId: Long, cutoffEpochMs: Long): Int
 

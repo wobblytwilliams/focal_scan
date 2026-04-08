@@ -3,11 +3,12 @@ package au.edu.cqu.focalapp.ui
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import au.edu.cqu.focalapp.data.local.FocalDatabase
+import au.edu.cqu.focalapp.data.local.SessionFormatVersion
 import au.edu.cqu.focalapp.data.repository.FocalRepository
-import au.edu.cqu.focalapp.domain.model.AnimalColor
 import au.edu.cqu.focalapp.domain.model.Behavior
+import au.edu.cqu.focalapp.domain.model.TrackedAnimal
 import au.edu.cqu.focalapp.util.MainDispatcherRule
-import au.edu.cqu.focalapp.util.SessionAnimalColorsCodec
+import au.edu.cqu.focalapp.util.SessionTrackedAnimalsCodec
 import au.edu.cqu.focalapp.util.TimeProvider
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -49,112 +50,156 @@ class FocalSamplingViewModelTest {
     }
 
     @Test
-    fun requestStartSession_showsTimeWarningBeforeSetup() = runTest {
+    fun toggleAnimalSelection_filtersVisibleAnimalsAndGraphGroups() = runTest {
         val viewModel = createViewModel()
+        advanceUntilIdle()
 
-        viewModel.setAnimalCount(2)
+        viewModel.toggleAnimalSelection(TrackedAnimal.YELLOW)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(
+            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
+            state.visibleAnimals.map(AnimalPanelUiState::trackedAnimal)
+        )
+        assertEquals(
+            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
+            state.graph.groups.map(AnimalGraphGroupUiState::trackedAnimal)
+        )
+    }
+
+    @Test
+    fun requestStartSession_showsTimeWarningBeforeStarting() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
         viewModel.requestStartSession()
 
         assertTrue(viewModel.uiState.value.showTimeWarning)
-        assertFalse(viewModel.uiState.value.showStartSessionDialog)
     }
 
     @Test
-    fun confirmTimeWarning_opensStartSessionDialog() = runTest {
+    fun confirmTimeWarning_startsSessionWithSelectedAnimals() = runTest {
         val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.toggleAnimalSelection(TrackedAnimal.YELLOW)
+        advanceUntilIdle()
 
-        viewModel.setAnimalCount(2)
         viewModel.requestStartSession()
         viewModel.confirmTimeWarning()
-
-        assertFalse(viewModel.uiState.value.showTimeWarning)
-        assertTrue(viewModel.uiState.value.showStartSessionDialog)
-    }
-
-    @Test
-    fun dismissTimeWarning_returnsToMainScreen() = runTest {
-        val viewModel = createViewModel()
-
-        viewModel.setAnimalCount(2)
-        viewModel.requestStartSession()
-        viewModel.dismissTimeWarning()
-
-        assertFalse(viewModel.uiState.value.showTimeWarning)
-        assertFalse(viewModel.uiState.value.showStartSessionDialog)
-    }
-
-    @Test
-    fun startSession_persistsSelectedColorsAndRestoresThem() = runTest {
-        val viewModel = createViewModel()
-
-        viewModel.setAnimalCount(2)
-        viewModel.requestStartSession()
-        viewModel.confirmTimeWarning()
-        viewModel.startSession(
-            animalIds = listOf("Ewe 17", "Ewe 22"),
-            animalColors = listOf(AnimalColor.YELLOW, AnimalColor.BLUE)
-        )
         advanceUntilIdle()
 
         val activeState = viewModel.uiState.value
         assertTrue(activeState.isSessionActive)
         assertEquals(
-            listOf(AnimalColor.YELLOW, AnimalColor.BLUE),
-            activeState.visibleAnimals.map(AnimalPanelUiState::animalColor)
+            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
+            activeState.visibleAnimals.map(AnimalPanelUiState::trackedAnimal)
         )
 
         val session = repository.getSessionById(activeState.activeSessionId!!)!!
+        assertEquals(SessionFormatVersion.TRACKED_ANIMALS, session.sessionFormatVersion)
         assertEquals(
-            listOf(AnimalColor.YELLOW, AnimalColor.BLUE),
-            SessionAnimalColorsCodec.decode(session.animalColorsJson)
+            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
+            SessionTrackedAnimalsCodec.decode(session.trackedAnimalsJson)
         )
 
         val restoredViewModel = createViewModel()
         advanceUntilIdle()
 
         assertTrue(restoredViewModel.uiState.value.isSessionActive)
-        assertFalse(restoredViewModel.uiState.value.showTimeWarning)
         assertEquals(
-            listOf(AnimalColor.YELLOW, AnimalColor.BLUE),
-            restoredViewModel.uiState.value.visibleAnimals.map(AnimalPanelUiState::animalColor)
+            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
+            restoredViewModel.uiState.value.visibleAnimals.map(AnimalPanelUiState::trackedAnimal)
+        )
+    }
+
+    @Test
+    fun dismissTimeWarning_returnsToMainScreen() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.requestStartSession()
+        viewModel.dismissTimeWarning()
+
+        assertFalse(viewModel.uiState.value.showTimeWarning)
+    }
+
+    @Test
+    fun selectionCannotChangeDuringActiveSession() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.toggleAnimalSelection(TrackedAnimal.YELLOW)
+        advanceUntilIdle()
+        viewModel.requestStartSession()
+        viewModel.confirmTimeWarning()
+        advanceUntilIdle()
+
+        viewModel.toggleAnimalSelection(TrackedAnimal.YELLOW)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
+            viewModel.uiState.value.visibleAnimals.map(AnimalPanelUiState::trackedAnimal)
         )
     }
 
     @Test
     fun deleteLast30Seconds_onlyClearsSelectedAnimalWithoutStoppingSession() = runTest {
         val viewModel = createViewModel()
+        advanceUntilIdle()
 
-        viewModel.setAnimalCount(2)
+        viewModel.toggleAnimalSelection(TrackedAnimal.YELLOW)
+        advanceUntilIdle()
         viewModel.requestStartSession()
         viewModel.confirmTimeWarning()
-        viewModel.startSession(
-            animalIds = listOf("Ram 3", "Ewe 8"),
-            animalColors = listOf(AnimalColor.BLUE, AnimalColor.GREEN)
-        )
         advanceUntilIdle()
 
         timeProvider.now = 105_000L
-        viewModel.onBehaviourPressed(slotIndex = 0, behaviour = Behavior.GRAZING)
+        viewModel.onBehaviourPressed(
+            slotIndex = TrackedAnimal.BLUE.ordinal,
+            behaviour = Behavior.GRAZING
+        )
         advanceUntilIdle()
 
         timeProvider.now = 110_000L
-        viewModel.onBehaviourPressed(slotIndex = 1, behaviour = Behavior.WALKING)
+        viewModel.onBehaviourPressed(
+            slotIndex = TrackedAnimal.GREEN.ordinal,
+            behaviour = Behavior.WALKING
+        )
         advanceUntilIdle()
 
         timeProvider.now = 135_000L
-        viewModel.deleteLast30Seconds(slotIndex = 0)
+        viewModel.deleteLast30Seconds(slotIndex = TrackedAnimal.BLUE.ordinal)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
         assertTrue(state.isSessionActive)
-        assertNull(state.visibleAnimals[0].activeBehaviour)
-        assertEquals(Behavior.WALKING, state.visibleAnimals[1].activeBehaviour)
+        assertNull(state.animals[TrackedAnimal.BLUE.ordinal].activeBehaviour)
+        assertEquals(
+            Behavior.WALKING,
+            state.animals[TrackedAnimal.GREEN.ordinal].activeBehaviour
+        )
 
         val events = repository.getEventsForSession(state.activeSessionId!!)
         assertEquals(1, events.size)
-        assertEquals("Ewe 8", events.single().animalId)
+        assertEquals(TrackedAnimal.GREEN.displayName, events.single().animalId)
         assertNull(events.single().endTimeEpochMs)
         assertNull(repository.getSessionById(state.activeSessionId!!)?.endedAtEpochMs)
+    }
+
+    @Test
+    fun requestStartSession_doesNotOpenWarningWhenNothingIsSelected() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        TrackedAnimal.entries.forEach(viewModel::toggleAnimalSelection)
+        advanceUntilIdle()
+        viewModel.requestStartSession()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.showTimeWarning)
+        assertTrue(viewModel.uiState.value.visibleAnimals.isEmpty())
     }
 
     private fun createViewModel(): FocalSamplingViewModel {

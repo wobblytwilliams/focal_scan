@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [SamplingSessionEntity::class, BehaviorEventEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -38,6 +38,17 @@ abstract class FocalDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE sessions ADD COLUMN tracked_animals_json TEXT NOT NULL DEFAULT '[]'"
+                )
+                database.execSQL(
+                    "ALTER TABLE sessions ADD COLUMN session_format_version INTEGER NOT NULL DEFAULT 1"
+                )
+            }
+        }
+
         fun getInstance(context: Context): FocalDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -45,7 +56,7 @@ abstract class FocalDatabase : RoomDatabase() {
                     FocalDatabase::class.java,
                     "focal_sampling.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
