@@ -74,11 +74,29 @@ fun FocalSamplingScreen(
     val verticalSpacing = if (isPortraitTablet) 20.dp else 16.dp
     val animalSectionHeight = remember(
         configuration.screenHeightDp,
-        isPortraitTablet
+        isPortraitTablet,
+        uiState.visibleAnimals.size
     ) {
-        val minHeight = if (isPortraitTablet) 520.dp else 320.dp
+        val visibleAnimalCount = uiState.visibleAnimals.size.coerceAtLeast(1)
+        val perAnimalMinHeight = when {
+            isPortraitTablet && visibleAnimalCount == 1 -> 360.dp
+            isPortraitTablet && visibleAnimalCount == 2 -> 290.dp
+            isPortraitTablet -> 250.dp
+            visibleAnimalCount == 1 -> 300.dp
+            visibleAnimalCount == 2 -> 240.dp
+            else -> 220.dp
+        }
+        val interCardSpacing = when (visibleAnimalCount) {
+            1 -> 0.dp
+            2 -> 12.dp
+            else -> 8.dp
+        }
+        val baseMinHeight = if (isPortraitTablet) 540.dp else 320.dp
+        val desiredHeight = (perAnimalMinHeight * visibleAnimalCount) +
+            (interCardSpacing * (visibleAnimalCount - 1))
         val heightFraction = if (isPortraitTablet) 0.52f else 0.46f
-        (configuration.screenHeightDp.dp * heightFraction).coerceAtLeast(minHeight)
+        val viewportTarget = configuration.screenHeightDp.dp * heightFraction
+        viewportTarget.coerceAtLeast(baseMinHeight).coerceAtLeast(desiredHeight)
     }
 
     var pendingExport by remember { mutableStateOf<CsvExportPayload?>(null) }
@@ -349,8 +367,8 @@ private fun SessionControlsCard(
     onExportCsv: () -> Unit
 ) {
     val contentPadding = if (isPortraitTablet) 24.dp else 16.dp
-    val selectedNames = uiState.visibleAnimals.joinToString { it.trackedAnimal.displayName }
-    val selectedSummary = selectedNames.ifBlank { "None" }
+    val selectedCount = uiState.visibleAnimals.size
+    val selectedSummary = selectedCount.toString()
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -374,8 +392,8 @@ private fun SessionControlsCard(
                     uiState.isSessionActive && uiState.activeSessionId != null ->
                         "Recording locally on the tablet. Only one behaviour can be active per animal."
 
-                    uiState.visibleAnimals.isNotEmpty() ->
-                        "$selectedNames selected for the next session."
+                    selectedCount > 0 ->
+                        "$selectedCount animal${if (selectedCount == 1) "" else "s"} selected for the next session."
 
                     uiState.exportSessionId != null ->
                         "The most recent session is ready to export as CSV. Select the animals you want for the next session."

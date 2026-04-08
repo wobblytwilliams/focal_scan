@@ -3,16 +3,17 @@ package au.edu.cqu.focalapp.ui.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
@@ -27,7 +28,6 @@ import au.edu.cqu.focalapp.ui.AnimalPanelUiState
 import au.edu.cqu.focalapp.ui.palette
 import au.edu.cqu.focalapp.util.DateTimeFormats
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AnimalPanelCard(
     animal: AnimalPanelUiState,
@@ -75,6 +75,13 @@ fun AnimalPanelCard(
     } else {
         palette.containerColor
     }
+    val instructionText = if (totalAnimals == 3) {
+        "Tap a behaviour for ${animal.trackedAnimal.displayName.lowercase()}."
+    } else {
+        "Tap a behaviour to start or switch logging for ${animal.trackedAnimal.displayName.lowercase()}."
+    }
+    val behaviourRows = behaviourRowsFor(totalAnimals)
+    val maxButtonsPerRow = behaviourRows.maxOf { it.size }
 
     OutlinedCard(
         modifier = modifier.fillMaxWidth(),
@@ -113,7 +120,7 @@ fun AnimalPanelCard(
             }
 
             Text(
-                text = "Tap a behaviour to start or switch logging for ${animal.trackedAnimal.displayName.lowercase()}.",
+                text = instructionText,
                 style = idStyle,
                 fontWeight = FontWeight.Medium,
                 color = supportingTextColor,
@@ -121,31 +128,42 @@ fun AnimalPanelCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            FlowRow(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(if (totalAnimals == 3) 6.dp else 8.dp),
                 verticalArrangement = Arrangement.spacedBy(if (totalAnimals == 3) 6.dp else 8.dp)
             ) {
-                orderedBehaviours.forEach { behaviour ->
-                    FilterChip(
-                        selected = animal.activeBehaviour == behaviour,
-                        onClick = { onBehaviourPressed(behaviour) },
-                        enabled = sessionActive,
-                        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-                            containerColor = palette.fieldColor,
-                            labelColor = titleColor,
-                            selectedContainerColor = palette.selectionColor,
-                            selectedLabelColor = titleColor
-                        ),
-                        label = {
-                            Text(
-                                text = behaviour.label,
-                                style = behaviourLabelStyle,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                behaviourRows.forEach { rowBehaviours ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(if (totalAnimals == 3) 6.dp else 8.dp)
+                    ) {
+                        rowBehaviours.forEach { behaviour ->
+                            FilterChip(
+                                modifier = Modifier.weight(1f),
+                                selected = animal.activeBehaviour == behaviour,
+                                onClick = { onBehaviourPressed(behaviour) },
+                                enabled = sessionActive,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = palette.fieldColor,
+                                    labelColor = titleColor,
+                                    selectedContainerColor = palette.selectionColor,
+                                    selectedLabelColor = titleColor
+                                ),
+                                label = {
+                                    Text(
+                                        text = behaviour.label,
+                                        style = behaviourLabelStyle,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             )
                         }
-                    )
+
+                        repeat(maxButtonsPerRow - rowBehaviours.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
                 }
             }
 
@@ -190,3 +208,14 @@ private val orderedBehaviours = listOf(
     Behavior.IDLE_NON_RUMINATING,
     Behavior.IDLE_RUMINATING
 )
+
+private fun behaviourRowsFor(totalAnimals: Int): List<List<Behavior>> {
+    return if (totalAnimals == 1) {
+        listOf(
+            listOf(Behavior.GRAZING, Behavior.WALKING, Behavior.IDLE),
+            listOf(Behavior.IDLE_NON_RUMINATING, Behavior.IDLE_RUMINATING)
+        )
+    } else {
+        orderedBehaviours.chunked(2)
+    }
+}
