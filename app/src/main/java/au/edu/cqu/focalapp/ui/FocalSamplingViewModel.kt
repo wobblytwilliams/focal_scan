@@ -40,6 +40,7 @@ class FocalSamplingViewModel(
     }
 
     private val actionMutex = Mutex()
+    private var hasUserSelectionOverride = false
 
     private val _uiState = MutableStateFlow(FocalSamplingUiState())
     val uiState: StateFlow<FocalSamplingUiState> = _uiState.asStateFlow()
@@ -100,6 +101,8 @@ class FocalSamplingViewModel(
                 if (state.isSessionActive) {
                     return@withLock
                 }
+
+                hasUserSelectionOverride = true
 
                 val updatedAnimals = state.animals.map { animal ->
                     if (animal.trackedAnimal == trackedAnimal) {
@@ -349,6 +352,7 @@ class FocalSamplingViewModel(
             startedAtEpochMs = now,
             trackedAnimals = selectedAnimals
         )
+        hasUserSelectionOverride = false
 
         _uiState.value = withGraph(
             state.copy(
@@ -372,10 +376,12 @@ class FocalSamplingViewModel(
     private fun restoreExistingSession() {
         viewModelScope.launch {
             actionMutex.withLock {
+                val currentState = _uiState.value
                 val activeSnapshot = repository.getActiveSessionSnapshot()
                 val latestSession = repository.getLatestSession()
                 val restoredState = when {
                     activeSnapshot != null -> {
+                        hasUserSelectionOverride = false
                         val selectedAnimals = trackedAnimalsForSession(activeSnapshot.session)
                         val restoredAnimals = buildAnimals(
                             currentAnimals = AnimalPanelUiState.defaults(selectedAnimals),
@@ -420,7 +426,9 @@ class FocalSamplingViewModel(
                     }
 
                     latestSession != null -> {
-                        val selectedAnimals = if (
+                        val selectedAnimals = if (hasUserSelectionOverride) {
+                            currentState.selectedTrackedAnimals
+                        } else if (
                             latestSession.sessionFormatVersion >= SessionFormatVersion.TRACKED_ANIMALS
                         ) {
                             trackedAnimalsForSession(latestSession)
@@ -432,16 +440,20 @@ class FocalSamplingViewModel(
                             exportSessionId = latestSession.id,
                             showTimeWarning = false,
                             animals = buildAnimals(
-                                currentAnimals = AnimalPanelUiState.defaults(selectedAnimals),
+                                currentAnimals = currentState.animals,
                                 selectedAnimals = selectedAnimals
                             )
                         )
                     }
 
                     else -> {
-                        FocalSamplingUiState(
-                            animals = AnimalPanelUiState.defaults(TrackedAnimal.defaultSelection())
-                        )
+                        if (hasUserSelectionOverride) {
+                            currentState.copy(showTimeWarning = false)
+                        } else {
+                            FocalSamplingUiState(
+                                animals = AnimalPanelUiState.defaults(TrackedAnimal.defaultSelection())
+                            )
+                        }
                     }
                 }
 
