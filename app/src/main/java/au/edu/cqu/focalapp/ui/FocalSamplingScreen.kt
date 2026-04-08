@@ -2,28 +2,26 @@ package au.edu.cqu.focalapp.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -39,10 +37,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -353,6 +349,7 @@ private fun SessionControlsCard(
 ) {
     val contentPadding = if (isPortraitTablet) 24.dp else 16.dp
     val selectedNames = uiState.visibleAnimals.joinToString { it.trackedAnimal.displayName }
+    val selectedSummary = selectedNames.ifBlank { "None" }
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -395,12 +392,6 @@ private fun SessionControlsCard(
                 fontWeight = FontWeight.SemiBold
             )
 
-            Text(
-                text = "These toggles control which animal cards are active for the session. The graph still keeps Blue, Green, and Yellow visible as a focus guide.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -414,6 +405,23 @@ private fun SessionControlsCard(
                     )
                 }
             }
+
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = selectedSummary,
+                onValueChange = {},
+                readOnly = true,
+                enabled = false,
+                label = {
+                    Text("Animals selected")
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                )
+            )
 
             if (uiState.isSessionActive) {
                 Text(
@@ -460,69 +468,31 @@ private fun AnimalSelectionChip(
     onClick: () -> Unit
 ) {
     val palette = trackedAnimal.animalColor.palette()
-    val content: @Composable () -> Unit = {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 2.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(12.dp)
-                    .background(
-                        color = palette.borderColor,
-                        shape = MaterialTheme.shapes.small
-                    )
-            )
-            Text(
-                text = trackedAnimal.displayName,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                text = if (selected) "Selected" else "Tap to select",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center
-            )
-        }
-    }
+    val statusText = if (selected) "Selected" else "Off"
 
-    if (selected) {
-        Button(
-            onClick = onClick,
-            enabled = enabled,
-            modifier = Modifier
-                .heightIn(min = 88.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = palette.activeContainerColor,
-                contentColor = palette.contentColor,
-                disabledContainerColor = palette.activeContainerColor.copy(alpha = 0.55f),
-                disabledContentColor = palette.contentColor.copy(alpha = 0.7f)
-            ),
-            border = BorderStroke(2.dp, palette.borderColor)
-        ) {
-            content()
-        }
-    } else {
-        OutlinedButton(
-            onClick = onClick,
-            enabled = enabled,
-            modifier = Modifier
-                .heightIn(min = 88.dp),
-            border = BorderStroke(
-                2.dp,
-                if (enabled) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-            ),
-            colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                contentColor = MaterialTheme.colorScheme.onSurface
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        enabled = enabled,
+        label = {
+            Text(
+                text = "${trackedAnimal.displayName}: $statusText",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = if (selected) palette.contentColor else MaterialTheme.colorScheme.onSurface
             )
-        ) {
-            content()
-        }
-    }
+        },
+        border = BorderStroke(
+            1.5.dp,
+            if (selected) palette.borderColor else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
+        ),
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            labelColor = MaterialTheme.colorScheme.onSurface,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+            disabledLabelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+            selectedContainerColor = palette.selectionColor,
+            selectedLabelColor = palette.contentColor
+        )
+    )
 }

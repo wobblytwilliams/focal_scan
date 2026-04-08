@@ -56,6 +56,11 @@ fun AnimalPanelCard(
         3 -> MaterialTheme.typography.titleSmall
         else -> MaterialTheme.typography.titleMedium
     }
+    val behaviourLabelStyle = when (totalAnimals) {
+        1 -> MaterialTheme.typography.bodyMedium
+        2 -> MaterialTheme.typography.labelLarge
+        else -> MaterialTheme.typography.labelMedium
+    }
     val idStyle = when (totalAnimals) {
         1 -> MaterialTheme.typography.bodyLarge
         else -> MaterialTheme.typography.bodyMedium
@@ -121,7 +126,7 @@ fun AnimalPanelCard(
                 horizontalArrangement = Arrangement.spacedBy(if (totalAnimals == 3) 6.dp else 8.dp),
                 verticalArrangement = Arrangement.spacedBy(if (totalAnimals == 3) 6.dp else 8.dp)
             ) {
-                Behavior.entries.forEach { behaviour ->
+                orderedBehaviours.forEach { behaviour ->
                     FilterChip(
                         selected = animal.activeBehaviour == behaviour,
                         onClick = { onBehaviourPressed(behaviour) },
@@ -135,11 +140,7 @@ fun AnimalPanelCard(
                         label = {
                             Text(
                                 text = behaviour.label,
-                                style = if (totalAnimals == 3) {
-                                    MaterialTheme.typography.labelMedium
-                                } else {
-                                    MaterialTheme.typography.bodyMedium
-                                },
+                                style = behaviourLabelStyle,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -181,3 +182,11 @@ fun AnimalPanelCard(
         }
     }
 }
+
+private val orderedBehaviours = listOf(
+    Behavior.GRAZING,
+    Behavior.WALKING,
+    Behavior.IDLE,
+    Behavior.IDLE_NON_RUMINATING,
+    Behavior.IDLE_RUMINATING
+)
