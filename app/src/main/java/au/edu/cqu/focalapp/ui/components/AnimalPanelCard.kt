@@ -38,7 +38,7 @@ fun AnimalPanelCard(
 ) {
     val isActive = animal.activeBehaviour != null
     val palette = animal.animalColor.palette()
-    val borderColor = if (isActive) palette.borderColor else palette.borderColor.copy(alpha = 0.55f)
+    val borderColor = if (isActive) palette.borderColor else palette.borderColor.copy(alpha = 0.7f)
     val titleColor = palette.contentColor
     val supportingTextColor = palette.supportingColor
     val verticalSpacing = when (totalAnimals) {
@@ -69,11 +69,9 @@ fun AnimalPanelCard(
         else -> MaterialTheme.typography.labelMedium
     }
 
-    val containerColor = if (isActive) {
-        palette.activeContainerColor
-    } else {
-        palette.containerColor
-    }
+    val containerColor = palette.containerColor
+    val behaviourChipColor = palette.fieldColor
+    val activeBehaviourChipColor = palette.activeContainerColor
     val instructionText = if (totalAnimals == 3) {
         "Tap a behaviour for ${animal.trackedAnimal.displayName.lowercase()}."
     } else {
@@ -143,9 +141,9 @@ fun AnimalPanelCard(
                                 onClick = { onBehaviourPressed(behaviour) },
                                 enabled = sessionActive,
                                 colors = FilterChipDefaults.filterChipColors(
-                                    containerColor = palette.fieldColor,
+                                    containerColor = behaviourChipColor,
                                     labelColor = titleColor,
-                                    selectedContainerColor = palette.selectionColor,
+                                    selectedContainerColor = activeBehaviourChipColor,
                                     selectedLabelColor = titleColor
                                 ),
                                 label = {

@@ -487,7 +487,6 @@ private fun AnimalSelectionChip(
     onClick: () -> Unit
 ) {
     val palette = trackedAnimal.animalColor.palette()
-    val statusText = if (selected) "Selected" else "Off"
 
     FilterChip(
         selected = selected,
@@ -495,7 +494,7 @@ private fun AnimalSelectionChip(
         enabled = enabled,
         label = {
             Text(
-                text = "${trackedAnimal.displayName}: $statusText",
+                text = trackedAnimal.displayName,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = if (selected) palette.contentColor else MaterialTheme.colorScheme.onSurface
