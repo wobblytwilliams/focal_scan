@@ -1,5 +1,9 @@
 package au.edu.cqu.focalapp.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -12,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -41,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,10 +69,12 @@ fun FocalSamplingScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
     val configuration = LocalConfiguration.current
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val liveClockText by rememberLiveClockText()
+    var showExitConfirmation by remember { mutableStateOf(false) }
     val isPortraitTablet = remember(configuration.screenWidthDp, configuration.screenHeightDp) {
         configuration.screenWidthDp >= 600 && configuration.screenHeightDp > configuration.screenWidthDp
     }
@@ -100,6 +108,10 @@ fun FocalSamplingScreen(
     }
 
     var pendingExport by remember { mutableStateOf<CsvExportPayload?>(null) }
+
+    BackHandler(enabled = uiState.isSessionActive) {
+        showExitConfirmation = true
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
@@ -170,6 +182,16 @@ fun FocalSamplingScreen(
         )
     }
 
+    if (showExitConfirmation) {
+        ExitSessionDialog(
+            onStay = { showExitConfirmation = false },
+            onLeave = {
+                showExitConfirmation = false
+                activity?.finish()
+            }
+        )
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = {
@@ -196,6 +218,9 @@ fun FocalSamplingScreen(
                 uiState = uiState,
                 isPortraitTablet = isPortraitTablet,
                 onToggleAnimal = viewModel::toggleAnimalSelection,
+                onObserverNameChanged = viewModel::onObserverNameChanged,
+                onTimeOffsetValueChanged = viewModel::onTimeOffsetValueChanged,
+                onTimeOffsetDirectionChanged = viewModel::onTimeOffsetDirectionChanged,
                 onStartSession = viewModel::requestStartSession,
                 onStopSession = viewModel::stopSession,
                 onExportCsv = viewModel::exportCsv
@@ -297,12 +322,13 @@ private fun TimeWarningDialog(
     AlertDialog(
         onDismissRequest = onGoBack,
         title = {
-            Text("Check device time before sampling")
+            Text("Have you checked time.is?")
         },
         text = {
             Text(
                 "This app works offline, so it relies on the tablet's own clock. " +
-                    "Before you start a session, compare the device time against time.is. " +
+                    "Before you start a session, check time.is and make sure you include the time offset in the session card. " +
+                    "Enter 0 if time.is says exact. " +
                     "Event timestamps are stored with millisecond precision to help align them with accelerometer data."
             )
         },
@@ -314,6 +340,34 @@ private fun TimeWarningDialog(
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text("Confirm")
+            }
+        }
+    )
+}
+
+@Composable
+private fun ExitSessionDialog(
+    onStay: () -> Unit,
+    onLeave: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onStay,
+        title = {
+            Text("Session still running")
+        },
+        text = {
+            Text(
+                "This session is still active. If you leave the app now, recording will keep running and you can restore it when you reopen the app."
+            )
+        },
+        dismissButton = {
+            TextButton(onClick = onStay) {
+                Text("Stay in app")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onLeave) {
+                Text("Leave app")
             }
         }
     )
@@ -362,6 +416,9 @@ private fun SessionControlsCard(
     uiState: FocalSamplingUiState,
     isPortraitTablet: Boolean,
     onToggleAnimal: (TrackedAnimal) -> Unit,
+    onObserverNameChanged: (String) -> Unit,
+    onTimeOffsetValueChanged: (String) -> Unit,
+    onTimeOffsetDirectionChanged: (TimeOffsetDirection) -> Unit,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
     onExportCsv: () -> Unit
@@ -369,6 +426,12 @@ private fun SessionControlsCard(
     val contentPadding = if (isPortraitTablet) 24.dp else 16.dp
     val selectedCount = uiState.visibleAnimals.size
     val selectedSummary = selectedCount.toString()
+    val observerNameIsInvalid = !uiState.isSessionActive &&
+        uiState.sessionMetadata.observerName.isNotBlank() &&
+        !uiState.sessionMetadata.isObserverNameValid
+    val timeOffsetIsInvalid = !uiState.isSessionActive &&
+        uiState.sessionMetadata.timeOffsetInput.isNotBlank() &&
+        !uiState.sessionMetadata.isTimeOffsetValid
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -399,7 +462,7 @@ private fun SessionControlsCard(
                         "The most recent session is ready to export as CSV. Select the animals you want for the next session."
 
                     else ->
-                        "All animals start off deselected. Turn on Blue, Green, and/or Yellow, then start a session to begin recording."
+                        "All animals start off deselected. Turn on Blue, Green, and/or Yellow, then enter the observer name and time.is offset before starting."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -442,9 +505,77 @@ private fun SessionControlsCard(
                 )
             )
 
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = uiState.sessionMetadata.observerName,
+                onValueChange = onObserverNameChanged,
+                readOnly = uiState.isSessionActive,
+                isError = observerNameIsInvalid,
+                label = {
+                    Text("Observer name")
+                },
+                supportingText = {
+                    Text(
+                        if (observerNameIsInvalid) {
+                            "Enter the observer name before starting."
+                        } else {
+                            "Required before starting the session."
+                        }
+                    )
+                }
+            )
+
+            Text(
+                text = "Time.is offset",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                TimeOffsetDirection.entries.forEach { direction ->
+                    FilterChip(
+                        selected = uiState.sessionMetadata.timeOffsetDirection == direction,
+                        onClick = { onTimeOffsetDirectionChanged(direction) },
+                        enabled = !uiState.isSessionActive,
+                        label = {
+                            Text(
+                                text = when (direction) {
+                                    TimeOffsetDirection.AHEAD -> "Ahead"
+                                    TimeOffsetDirection.BEHIND -> "Behind"
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = uiState.sessionMetadata.timeOffsetInput,
+                onValueChange = onTimeOffsetValueChanged,
+                readOnly = uiState.isSessionActive,
+                isError = timeOffsetIsInvalid,
+                label = {
+                    Text("Offset seconds")
+                },
+                supportingText = {
+                    Text(
+                        if (timeOffsetIsInvalid) {
+                            "Use 0 or a non-negative value with up to one decimal place."
+                        } else {
+                            "Enter 0 if time.is says exact. Otherwise enter seconds, for example 0.3."
+                        }
+                    )
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+            )
+
             if (uiState.isSessionActive) {
                 Text(
-                    text = "Animal selection is locked while a session is active.",
+                    text = "Animal selection, observer name, and time offset are locked while a session is active.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -513,4 +644,12 @@ private fun AnimalSelectionChip(
             selectedLabelColor = palette.contentColor
         )
     )
+}
+
+private tailrec fun Context.findActivity(): Activity? {
+    return when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
 }

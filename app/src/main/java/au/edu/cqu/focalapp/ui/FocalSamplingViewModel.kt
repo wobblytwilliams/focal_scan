@@ -15,6 +15,7 @@ import au.edu.cqu.focalapp.util.DateTimeFormats
 import au.edu.cqu.focalapp.util.SessionAnimalIdsCodec
 import au.edu.cqu.focalapp.util.SessionTrackedAnimalsCodec
 import au.edu.cqu.focalapp.util.TimeProvider
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -56,15 +57,53 @@ class FocalSamplingViewModel(
         _uiState.update { it.copy(showTimeWarning = false) }
     }
 
+    fun onObserverNameChanged(observerName: String) {
+        val state = _uiState.value
+        if (state.isSessionActive) {
+            return
+        }
+
+        _uiState.value = state.copy(
+            sessionMetadata = state.sessionMetadata.copy(observerName = observerName)
+        )
+    }
+
+    fun onTimeOffsetValueChanged(rawValue: String) {
+        val state = _uiState.value
+        if (state.isSessionActive) {
+            return
+        }
+
+        _uiState.value = state.copy(
+            sessionMetadata = state.sessionMetadata.copy(
+                timeOffsetInput = sanitizeTimeOffsetInput(rawValue)
+            )
+        )
+    }
+
+    fun onTimeOffsetDirectionChanged(direction: TimeOffsetDirection) {
+        val state = _uiState.value
+        if (state.isSessionActive) {
+            return
+        }
+
+        _uiState.value = state.copy(
+            sessionMetadata = state.sessionMetadata.copy(
+                timeOffsetDirection = direction
+            )
+        )
+    }
+
     fun requestStartSession() {
         val state = _uiState.value
         if (state.isSessionActive) {
             return
         }
 
-        if (state.visibleAnimals.isEmpty()) {
+        val validationMessage = validateStartSession(state)
+        if (validationMessage != null) {
             viewModelScope.launch {
-                _events.emit(UiEvent.ShowMessage("Select at least one animal before starting a session."))
+                _events.emit(UiEvent.ShowMessage(validationMessage))
             }
             return
         }
@@ -73,19 +112,20 @@ class FocalSamplingViewModel(
     }
 
     fun confirmTimeWarning() {
-        viewModelScope.launch {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             actionMutex.withLock {
                 val state = _uiState.value
                 if (state.isSessionActive) {
                     return@withLock
                 }
 
-                if (state.visibleAnimals.isEmpty()) {
+                val validationMessage = validateStartSession(state)
+                if (validationMessage != null) {
                     _uiState.value = withGraph(
                         state.copy(showTimeWarning = false),
                         nowEpochMs = timeProvider.nowEpochMillis()
                     )
-                    _events.emit(UiEvent.ShowMessage("Select at least one animal before starting a session."))
+                    _events.emit(UiEvent.ShowMessage(validationMessage))
                     return@withLock
                 }
 
@@ -95,41 +135,34 @@ class FocalSamplingViewModel(
     }
 
     fun toggleAnimalSelection(trackedAnimal: TrackedAnimal) {
-        viewModelScope.launch {
-            actionMutex.withLock {
-                val state = _uiState.value
-                if (state.isSessionActive) {
-                    return@withLock
-                }
+        val state = _uiState.value
+        if (state.isSessionActive) {
+            return
+        }
 
-                hasUserSelectionOverride = true
+        hasUserSelectionOverride = true
 
-                val updatedAnimals = state.animals.map { animal ->
-                    if (animal.trackedAnimal == trackedAnimal) {
-                        animal.copy(
-                            isSelected = !animal.isSelected,
-                            activeBehaviour = null,
-                            activeEventId = null,
-                            activeStartedAtEpochMs = null
-                        )
-                    } else {
-                        animal
-                    }
-                }
-
-                _uiState.value = withGraph(
-                    state.copy(
-                        showTimeWarning = false,
-                        animals = updatedAnimals
-                    ),
-                    nowEpochMs = timeProvider.nowEpochMillis()
+        val updatedAnimals = state.animals.map { animal ->
+            if (animal.trackedAnimal == trackedAnimal) {
+                animal.copy(
+                    isSelected = !animal.isSelected,
+                    activeBehaviour = null,
+                    activeEventId = null,
+                    activeStartedAtEpochMs = null
                 )
+            } else {
+                animal
             }
         }
+
+        _uiState.value = state.copy(
+            showTimeWarning = false,
+            animals = updatedAnimals
+        )
     }
 
     fun stopSession() {
-        viewModelScope.launch {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             actionMutex.withLock {
                 val state = _uiState.value
                 val sessionId = state.activeSessionId
@@ -144,6 +177,7 @@ class FocalSamplingViewModel(
                     .forEach { repository.endEvent(it, now) }
 
                 repository.stopSession(sessionId, now)
+                val exportPayload = buildCsvExportPayload(sessionId)
 
                 val closedAnimals = state.animals.map { animal ->
                     animal.copy(
@@ -170,12 +204,18 @@ class FocalSamplingViewModel(
                         "Session #$sessionId stopped. Open behaviours were closed at ${DateTimeFormats.formatLocalTime(now)}."
                     )
                 )
+
+                if (exportPayload != null) {
+                    _events.emit(UiEvent.ExportCsv(exportPayload))
+                } else {
+                    _events.emit(UiEvent.ShowMessage("Session #$sessionId could not be prepared for CSV export."))
+                }
             }
         }
     }
 
     fun deleteLast30Seconds(slotIndex: Int) {
-        viewModelScope.launch {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             actionMutex.withLock {
                 val state = _uiState.value
                 val sessionId = state.activeSessionId
@@ -219,7 +259,7 @@ class FocalSamplingViewModel(
     }
 
     fun onBehaviourPressed(slotIndex: Int, behaviour: Behavior) {
-        viewModelScope.launch {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             actionMutex.withLock {
                 val state = _uiState.value
                 val sessionId = state.activeSessionId
@@ -296,7 +336,7 @@ class FocalSamplingViewModel(
     }
 
     fun exportCsv() {
-        viewModelScope.launch {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             actionMutex.withLock {
                 val state = _uiState.value
                 val sessionId = state.exportSessionId
@@ -306,35 +346,24 @@ class FocalSamplingViewModel(
                     return@withLock
                 }
 
-                val session = repository.getSessionById(sessionId)
-                if (session == null) {
+                if (repository.getSessionById(sessionId) == null) {
                     _events.emit(UiEvent.ShowMessage("The selected session could not be found."))
                     return@withLock
                 }
 
-                val events = repository.getEventsForSession(sessionId)
-                if (events.isEmpty()) {
-                    _events.emit(UiEvent.ShowMessage("Session #$sessionId has no events to export."))
+                val exportPayload = buildCsvExportPayload(sessionId)
+                if (exportPayload == null) {
+                    _events.emit(UiEvent.ShowMessage("Session #$sessionId could not be prepared for export."))
                     return@withLock
                 }
 
-                _events.emit(
-                    UiEvent.ExportCsv(
-                        payload = CsvExportPayload(
-                            fileName = CsvExporter.buildFileName(
-                                sessionId = sessionId,
-                                sessionStartedAtEpochMs = session.startedAtEpochMs
-                            ),
-                            content = CsvExporter.buildCsv(events)
-                        )
-                    )
-                )
+                _events.emit(UiEvent.ExportCsv(exportPayload))
             }
         }
     }
 
     fun refreshGraph() {
-        viewModelScope.launch {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             actionMutex.withLock {
                 val state = _uiState.value
                 _uiState.value = withGraph(
@@ -347,10 +376,14 @@ class FocalSamplingViewModel(
 
     private suspend fun startSelectedSessionLocked(state: FocalSamplingUiState) {
         val selectedAnimals = state.selectedTrackedAnimals
+        val observerName = state.sessionMetadata.trimmedObserverName
+        val timeOffsetSeconds = state.sessionMetadata.signedTimeOffsetSeconds ?: 0.0
         val now = timeProvider.nowEpochMillis()
         val sessionId = repository.startSession(
             startedAtEpochMs = now,
-            trackedAnimals = selectedAnimals
+            trackedAnimals = selectedAnimals,
+            observerName = observerName,
+            timeOffsetSeconds = timeOffsetSeconds
         )
         hasUserSelectionOverride = false
 
@@ -361,6 +394,10 @@ class FocalSamplingViewModel(
                 activeSessionStartedAtEpochMs = now,
                 exportSessionId = sessionId,
                 showTimeWarning = false,
+                sessionMetadata = SessionMetadataUiState.fromStoredValues(
+                    observerName = observerName,
+                    signedTimeOffsetSeconds = timeOffsetSeconds
+                ),
                 animals = buildAnimals(
                     currentAnimals = state.animals,
                     selectedAnimals = selectedAnimals,
@@ -374,11 +411,20 @@ class FocalSamplingViewModel(
     }
 
     private fun restoreExistingSession() {
-        viewModelScope.launch {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             actionMutex.withLock {
-                val currentState = _uiState.value
                 val activeSnapshot = repository.getActiveSessionSnapshot()
                 val latestSession = repository.getLatestSession()
+                val currentState = _uiState.value
+
+                if (currentState.isSessionActive) {
+                    _uiState.value = withGraph(
+                        currentState,
+                        nowEpochMs = timeProvider.nowEpochMillis()
+                    )
+                    return@withLock
+                }
+
                 val restoredState = when {
                     activeSnapshot != null -> {
                         hasUserSelectionOverride = false
@@ -421,6 +467,10 @@ class FocalSamplingViewModel(
                             activeSessionStartedAtEpochMs = activeSnapshot.session.startedAtEpochMs,
                             exportSessionId = activeSnapshot.session.id,
                             showTimeWarning = false,
+                            sessionMetadata = SessionMetadataUiState.fromStoredValues(
+                                observerName = activeSnapshot.session.observerName,
+                                signedTimeOffsetSeconds = activeSnapshot.session.timeOffsetSeconds
+                            ),
                             animals = restoredAnimals
                         )
                     }
@@ -435,6 +485,11 @@ class FocalSamplingViewModel(
                         FocalSamplingUiState(
                             exportSessionId = latestSession.id,
                             showTimeWarning = false,
+                            sessionMetadata = if (hasUserSelectionOverride || currentState.sessionMetadata != SessionMetadataUiState()) {
+                                currentState.sessionMetadata
+                            } else {
+                                SessionMetadataUiState()
+                            },
                             animals = buildAnimals(
                                 currentAnimals = currentState.animals,
                                 selectedAnimals = selectedAnimals
@@ -443,10 +498,11 @@ class FocalSamplingViewModel(
                     }
 
                     else -> {
-                        if (hasUserSelectionOverride) {
+                        if (hasUserSelectionOverride || currentState.sessionMetadata != SessionMetadataUiState()) {
                             currentState.copy(showTimeWarning = false)
                         } else {
                             FocalSamplingUiState(
+                                sessionMetadata = SessionMetadataUiState(),
                                 animals = AnimalPanelUiState.defaults()
                             )
                         }
@@ -560,5 +616,35 @@ class FocalSamplingViewModel(
             groups = groups,
             yAxisMaxMinutes = calculateGraphAxisMaxMinutes(groups)
         )
+    }
+
+    private suspend fun buildCsvExportPayload(sessionId: Long): CsvExportPayload? {
+        val session = repository.getSessionById(sessionId) ?: return null
+        val events = repository.getEventsForSession(sessionId)
+        return CsvExportPayload(
+            fileName = CsvExporter.buildFileName(
+                sessionId = sessionId,
+                sessionStartedAtEpochMs = session.startedAtEpochMs
+            ),
+            content = CsvExporter.buildCsv(
+                session = session,
+                events = events
+            )
+        )
+    }
+
+    private fun validateStartSession(state: FocalSamplingUiState): String? {
+        return when {
+            state.visibleAnimals.isEmpty() ->
+                "Select at least one animal before starting a session."
+
+            !state.sessionMetadata.isObserverNameValid ->
+                "Enter the observer name before starting a session."
+
+            !state.sessionMetadata.isTimeOffsetValid ->
+                "Enter the time.is offset as 0 or a value with up to one decimal place."
+
+            else -> null
+        }
     }
 }

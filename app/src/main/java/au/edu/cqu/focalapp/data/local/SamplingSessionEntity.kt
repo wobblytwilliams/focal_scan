@@ -12,6 +12,8 @@ data class SamplingSessionEntity(
     @ColumnInfo(name = "animal_colors_json") val animalColorsJson: String,
     @ColumnInfo(name = "tracked_animals_json") val trackedAnimalsJson: String = "[]",
     @ColumnInfo(name = "session_format_version") val sessionFormatVersion: Int = SessionFormatVersion.LEGACY,
+    @ColumnInfo(name = "observer_name") val observerName: String = "",
+    @ColumnInfo(name = "time_offset_seconds") val timeOffsetSeconds: Double = 0.0,
     @ColumnInfo(name = "started_at") val startedAtEpochMs: Long,
     @ColumnInfo(name = "ended_at") val endedAtEpochMs: Long? = null
 )

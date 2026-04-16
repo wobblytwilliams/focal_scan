@@ -38,7 +38,9 @@ class FocalRepositoryTrimTest {
     fun trimSessionToCutoff_deletesEventsFullyInsideTheWindow() = runTest {
         val sessionId = repository.startSession(
             startedAtEpochMs = 0L,
-            trackedAnimals = listOf(TrackedAnimal.BLUE)
+            trackedAnimals = listOf(TrackedAnimal.BLUE),
+            observerName = "Observer",
+            timeOffsetSeconds = 0.0
         )
         val olderEventId = repository.startEvent(
             sessionId = sessionId,
@@ -67,7 +69,9 @@ class FocalRepositoryTrimTest {
     fun trimSessionToCutoff_truncatesOverlappingEventsAndKeepsSessionActive() = runTest {
         val sessionId = repository.startSession(
             startedAtEpochMs = 0L,
-            trackedAnimals = listOf(TrackedAnimal.BLUE)
+            trackedAnimals = listOf(TrackedAnimal.BLUE),
+            observerName = "Observer",
+            timeOffsetSeconds = 0.0
         )
         val closedEventId = repository.startEvent(
             sessionId = sessionId,
@@ -97,7 +101,9 @@ class FocalRepositoryTrimTest {
     fun trimAnimalToCutoff_onlyAffectsSelectedAnimal() = runTest {
         val sessionId = repository.startSession(
             startedAtEpochMs = 0L,
-            trackedAnimals = listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN)
+            trackedAnimals = listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
+            observerName = "Observer",
+            timeOffsetSeconds = 0.0
         )
         val animalOneEventId = repository.startEvent(
             sessionId = sessionId,

@@ -33,7 +33,9 @@ class FocalRepository(
 
     suspend fun startSession(
         startedAtEpochMs: Long,
-        trackedAnimals: List<TrackedAnimal>
+        trackedAnimals: List<TrackedAnimal>,
+        observerName: String,
+        timeOffsetSeconds: Double
     ): Long {
         val animalIds = trackedAnimals.map(TrackedAnimal::displayName)
         val animalColors = trackedAnimals.map(TrackedAnimal::animalColor)
@@ -44,6 +46,8 @@ class FocalRepository(
                 animalColorsJson = SessionAnimalColorsCodec.encode(animalColors),
                 trackedAnimalsJson = SessionTrackedAnimalsCodec.encode(trackedAnimals),
                 sessionFormatVersion = SessionFormatVersion.TRACKED_ANIMALS,
+                observerName = observerName,
+                timeOffsetSeconds = timeOffsetSeconds,
                 startedAtEpochMs = startedAtEpochMs
             )
         )

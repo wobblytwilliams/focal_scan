@@ -44,7 +44,9 @@ class FocalRepositoryGraphTest {
     fun getCumulativeBehaviourTotals_combinesTrackedSessionsAndExcludesLegacySessions() = runTest {
         val blueGreenSession = repository.startSession(
             startedAtEpochMs = 0L,
-            trackedAnimals = listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN)
+            trackedAnimals = listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
+            observerName = "Observer",
+            timeOffsetSeconds = 0.0
         )
         val blueWalking = repository.startEvent(
             sessionId = blueGreenSession,
@@ -70,7 +72,9 @@ class FocalRepositoryGraphTest {
 
         val yellowSession = repository.startSession(
             startedAtEpochMs = 3_000_000L,
-            trackedAnimals = listOf(TrackedAnimal.YELLOW)
+            trackedAnimals = listOf(TrackedAnimal.YELLOW),
+            observerName = "Observer",
+            timeOffsetSeconds = 0.0
         )
         repository.startEvent(
             sessionId = yellowSession,
