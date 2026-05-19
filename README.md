@@ -2,6 +2,10 @@
 
 Android MVP for offline focal animal behaviour sampling with up to three animals on one screen.
 
+## Releases
+
+Download APK builds from [GitHub Releases](https://github.com/wobblytwilliams/focal_scan/releases).
+
 ## What it does
 
 - Starts and stops a sampling session.
