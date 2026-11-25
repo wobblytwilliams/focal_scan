@@ -4,7 +4,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import au.edu.cqu.focalapp.data.local.FocalDatabase
 import au.edu.cqu.focalapp.domain.model.Behavior
-import au.edu.cqu.focalapp.domain.model.TrackedAnimal
+import au.edu.cqu.focalapp.domain.model.AnimalColor
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -38,20 +38,21 @@ class FocalRepositoryTrimTest {
     fun trimSessionToCutoff_deletesEventsFullyInsideTheWindow() = runTest {
         val sessionId = repository.startSession(
             startedAtEpochMs = 0L,
-            trackedAnimals = listOf(TrackedAnimal.BLUE),
+            animalIds = listOf("Cow-01"),
+            animalColors = listOf(AnimalColor.BLUE),
             observerName = "Observer",
             timeOffsetSeconds = 0.0
         )
         val olderEventId = repository.startEvent(
             sessionId = sessionId,
-            animalId = TrackedAnimal.BLUE.displayName,
+            animalId = "Cow-01",
             behaviour = Behavior.GRAZING,
             startTimeEpochMs = 1_000L
         )
         repository.endEvent(olderEventId, 4_000L)
         val newerEventId = repository.startEvent(
             sessionId = sessionId,
-            animalId = TrackedAnimal.BLUE.displayName,
+            animalId = "Cow-01",
             behaviour = Behavior.WALKING,
             startTimeEpochMs = 8_000L
         )
@@ -69,20 +70,21 @@ class FocalRepositoryTrimTest {
     fun trimSessionToCutoff_truncatesOverlappingEventsAndKeepsSessionActive() = runTest {
         val sessionId = repository.startSession(
             startedAtEpochMs = 0L,
-            trackedAnimals = listOf(TrackedAnimal.BLUE),
+            animalIds = listOf("Cow-01"),
+            animalColors = listOf(AnimalColor.BLUE),
             observerName = "Observer",
             timeOffsetSeconds = 0.0
         )
         val closedEventId = repository.startEvent(
             sessionId = sessionId,
-            animalId = TrackedAnimal.BLUE.displayName,
+            animalId = "Cow-01",
             behaviour = Behavior.GRAZING,
             startTimeEpochMs = 1_000L
         )
         repository.endEvent(closedEventId, 9_000L)
         repository.startEvent(
             sessionId = sessionId,
-            animalId = TrackedAnimal.BLUE.displayName,
+            animalId = "Cow-01",
             behaviour = Behavior.IDLE,
             startTimeEpochMs = 2_000L
         )
@@ -101,33 +103,34 @@ class FocalRepositoryTrimTest {
     fun trimAnimalToCutoff_onlyAffectsSelectedAnimal() = runTest {
         val sessionId = repository.startSession(
             startedAtEpochMs = 0L,
-            trackedAnimals = listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
+            animalIds = listOf("Cow-01", "Cow-02"),
+            animalColors = listOf(AnimalColor.BLUE, AnimalColor.GREEN),
             observerName = "Observer",
             timeOffsetSeconds = 0.0
         )
         val animalOneEventId = repository.startEvent(
             sessionId = sessionId,
-            animalId = TrackedAnimal.BLUE.displayName,
+            animalId = "Cow-01",
             behaviour = Behavior.GRAZING,
             startTimeEpochMs = 1_000L
         )
         repository.endEvent(animalOneEventId, 9_000L)
         repository.startEvent(
             sessionId = sessionId,
-            animalId = TrackedAnimal.GREEN.displayName,
+            animalId = "Cow-02",
             behaviour = Behavior.WALKING,
             startTimeEpochMs = 2_000L
         )
 
         repository.trimAnimalToCutoff(
             sessionId = sessionId,
-            animalId = TrackedAnimal.BLUE.displayName,
+            animalId = "Cow-01",
             cutoffEpochMs = 6_000L
         )
 
         val events = repository.getEventsForSession(sessionId)
-        val animalOneEvent = events.first { it.animalId == TrackedAnimal.BLUE.displayName }
-        val animalTwoEvent = events.first { it.animalId == TrackedAnimal.GREEN.displayName }
+        val animalOneEvent = events.first { it.animalId == "Cow-01" }
+        val animalTwoEvent = events.first { it.animalId == "Cow-02" }
 
         assertEquals(6_000L, animalOneEvent.endTimeEpochMs)
         assertNull(animalTwoEvent.endTimeEpochMs)

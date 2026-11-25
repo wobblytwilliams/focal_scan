@@ -6,14 +6,16 @@ import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -23,11 +25,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -42,7 +45,9 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -51,7 +56,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import au.edu.cqu.focalapp.domain.model.Behavior
-import au.edu.cqu.focalapp.domain.model.TrackedAnimal
+import au.edu.cqu.focalapp.domain.model.AnimalColor
+import au.edu.cqu.focalapp.data.local.SamplingSessionEntity
+import au.edu.cqu.focalapp.util.SessionAnimalIdsCodec
 import au.edu.cqu.focalapp.ui.components.AnimalPanelCard
 import au.edu.cqu.focalapp.ui.components.CumulativeBehaviourGraphCard
 import au.edu.cqu.focalapp.util.CsvExportPayload
@@ -68,6 +75,9 @@ fun FocalSamplingScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val previousSessions by viewModel.previousSessions.collectAsStateWithLifecycle()
+    var showPreviousSessions by rememberSaveable { mutableStateOf(false) }
+    var confirmGraphReset by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val configuration = LocalConfiguration.current
@@ -78,14 +88,15 @@ fun FocalSamplingScreen(
     val isPortraitTablet = remember(configuration.screenWidthDp, configuration.screenHeightDp) {
         configuration.screenWidthDp >= 600 && configuration.screenHeightDp > configuration.screenWidthDp
     }
+    val mainScrollState = rememberScrollState()
     val screenPadding = if (isPortraitTablet) 24.dp else 16.dp
     val verticalSpacing = if (isPortraitTablet) 20.dp else 16.dp
-    val animalSectionHeight = remember(
+    val animalMinHeight = remember(
         configuration.screenHeightDp,
         isPortraitTablet,
-        uiState.visibleAnimals.size
+        uiState.animals.size
     ) {
-        val visibleAnimalCount = uiState.visibleAnimals.size.coerceAtLeast(1)
+        val visibleAnimalCount = uiState.animals.size.coerceAtLeast(1)
         val perAnimalMinHeight = when {
             isPortraitTablet && visibleAnimalCount == 1 -> 360.dp
             isPortraitTablet && visibleAnimalCount == 2 -> 290.dp
@@ -94,23 +105,14 @@ fun FocalSamplingScreen(
             visibleAnimalCount == 2 -> 240.dp
             else -> 220.dp
         }
-        val interCardSpacing = when (visibleAnimalCount) {
-            1 -> 0.dp
-            2 -> 12.dp
-            else -> 8.dp
-        }
-        val baseMinHeight = if (isPortraitTablet) 540.dp else 320.dp
-        val desiredHeight = (perAnimalMinHeight * visibleAnimalCount) +
-            (interCardSpacing * (visibleAnimalCount - 1))
-        val heightFraction = if (isPortraitTablet) 0.52f else 0.46f
-        val viewportTarget = configuration.screenHeightDp.dp * heightFraction
-        viewportTarget.coerceAtLeast(baseMinHeight).coerceAtLeast(desiredHeight)
+        val viewportTarget = configuration.screenHeightDp.dp * if (isPortraitTablet) 0.52f else 0.46f
+        (viewportTarget / visibleAnimalCount).coerceAtLeast(perAnimalMinHeight)
     }
 
     var pendingExport by remember { mutableStateOf<CsvExportPayload?>(null) }
 
-    BackHandler(enabled = uiState.isSessionActive) {
-        showExitConfirmation = true
+    BackHandler(enabled = uiState.isSessionActive || showPreviousSessions) {
+        if (showPreviousSessions) showPreviousSessions = false else showExitConfirmation = true
     }
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -157,7 +159,7 @@ fun FocalSamplingScreen(
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
-                is UiEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
+                is UiEvent.ShowMessage -> launch { snackbarHostState.showSnackbar(event.message) }
                 is UiEvent.ExportCsv -> {
                     pendingExport = event.payload
                     exportLauncher.launch(event.payload.fileName)
@@ -192,17 +194,44 @@ fun FocalSamplingScreen(
         )
     }
 
+    if (confirmGraphReset) {
+        AlertDialog(
+            onDismissRequest = { confirmGraphReset = false },
+            title = { Text("Clear graph history?") },
+            text = { Text("All graph totals will return to zero. Saved sessions and CSV exports will stay available.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmGraphReset = false
+                    viewModel.clearGraphHistory()
+                }) { Text("Clear history") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmGraphReset = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = {
             SnackbarHost(hostState = snackbarHostState)
         }
     ) { paddingValues ->
+        if (showPreviousSessions) {
+            PreviousSessionsPage(
+                sessions = previousSessions,
+                onBack = { showPreviousSessions = false },
+                onExport = { viewModel.exportCsv(it) },
+                modifier = modifier.padding(paddingValues)
+            )
+            return@Scaffold
+        }
+
         Column(
             modifier = modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(mainScrollState)
                 .padding(screenPadding),
             verticalArrangement = Arrangement.spacedBy(verticalSpacing)
         ) {
@@ -214,28 +243,47 @@ fun FocalSamplingScreen(
                 isPortraitTablet = isPortraitTablet
             )
 
+            if (!uiState.isSessionActive) {
+                AnimalDetailsCard(
+                    animals = uiState.animals,
+                    knownIds = uiState.knownAnimalIds,
+                    onCountChanged = viewModel::setAnimalCount,
+                    onIdChanged = viewModel::setAnimalId,
+                    onColorChanged = viewModel::setAnimalColor
+                )
+            }
+
+            SessionDetailsCard(
+                uiState = uiState,
+                isPortraitTablet = isPortraitTablet,
+                onObserverNameChanged = viewModel::onObserverNameChanged,
+                onTimeOffsetValueChanged = viewModel::onTimeOffsetValueChanged,
+                onTimeOffsetDirectionChanged = viewModel::onTimeOffsetDirectionChanged
+            )
+
             SessionControlsCard(
                 uiState = uiState,
                 isPortraitTablet = isPortraitTablet,
-                onToggleAnimal = viewModel::toggleAnimalSelection,
-                onObserverNameChanged = viewModel::onObserverNameChanged,
-                onTimeOffsetValueChanged = viewModel::onTimeOffsetValueChanged,
-                onTimeOffsetDirectionChanged = viewModel::onTimeOffsetDirectionChanged,
                 onStartSession = viewModel::requestStartSession,
                 onStopSession = viewModel::stopSession,
-                onExportCsv = viewModel::exportCsv
+                onExportCsv = { viewModel.exportCsv() },
+                onPreviousSessions = {
+                    viewModel.loadPreviousSessions()
+                    showPreviousSessions = true
+                }
             )
 
             CumulativeBehaviourGraphCard(
                 graph = uiState.graph,
-                isPortraitTablet = isPortraitTablet
+                isPortraitTablet = isPortraitTablet,
+                onClearHistory = { confirmGraphReset = true }
             )
 
-            if (uiState.visibleAnimals.isNotEmpty()) {
+            if (uiState.isSessionActive && uiState.animals.isNotEmpty()) {
                 AnimalPanelsSection(
-                    animals = uiState.visibleAnimals,
+                    animals = uiState.animals,
                     sessionActive = uiState.isSessionActive,
-                    animalSectionHeight = animalSectionHeight,
+                    animalMinHeight = animalMinHeight,
                     onBehaviourPressed = { slotIndex, behaviour ->
                         viewModel.onBehaviourPressed(slotIndex, behaviour)
                     },
@@ -377,7 +425,7 @@ private fun ExitSessionDialog(
 private fun AnimalPanelsSection(
     animals: List<AnimalPanelUiState>,
     sessionActive: Boolean,
-    animalSectionHeight: Dp,
+    animalMinHeight: Dp,
     onBehaviourPressed: (Int, Behavior) -> Unit,
     onDeleteLast30Seconds: (Int) -> Unit
 ) {
@@ -388,9 +436,7 @@ private fun AnimalPanelsSection(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(animalSectionHeight),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(sectionSpacing)
     ) {
         animals.forEach { animal ->
@@ -404,7 +450,7 @@ private fun AnimalPanelsSection(
                 onDeleteLast30Seconds = {
                     onDeleteLast30Seconds(animal.slotIndex)
                 },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.heightIn(min = animalMinHeight)
             )
         }
     }
@@ -412,20 +458,14 @@ private fun AnimalPanelsSection(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SessionControlsCard(
+private fun SessionDetailsCard(
     uiState: FocalSamplingUiState,
     isPortraitTablet: Boolean,
-    onToggleAnimal: (TrackedAnimal) -> Unit,
     onObserverNameChanged: (String) -> Unit,
     onTimeOffsetValueChanged: (String) -> Unit,
-    onTimeOffsetDirectionChanged: (TimeOffsetDirection) -> Unit,
-    onStartSession: () -> Unit,
-    onStopSession: () -> Unit,
-    onExportCsv: () -> Unit
+    onTimeOffsetDirectionChanged: (TimeOffsetDirection) -> Unit
 ) {
     val contentPadding = if (isPortraitTablet) 24.dp else 16.dp
-    val selectedCount = uiState.visibleAnimals.size
-    val selectedSummary = selectedCount.toString()
     val observerNameIsInvalid = !uiState.isSessionActive &&
         uiState.sessionMetadata.observerName.isNotBlank() &&
         !uiState.sessionMetadata.isObserverNameValid
@@ -445,64 +485,9 @@ private fun SessionControlsCard(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                text = "Session controls",
+                text = "Session Details",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold
-            )
-
-            Text(
-                text = when {
-                    uiState.isSessionActive && uiState.activeSessionId != null ->
-                        "Recording locally on the tablet. Only one behaviour can be active per animal."
-
-                    selectedCount > 0 ->
-                        "$selectedCount animal${if (selectedCount == 1) "" else "s"} selected for the next session."
-
-                    uiState.exportSessionId != null ->
-                        "The most recent session is ready to export as CSV. Select the animals you want for the next session."
-
-                    else ->
-                        "All animals start off deselected. Turn on Blue, Green, and/or Yellow, then enter the observer name and time.is offset before starting."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Text(
-                text = "Select Animals",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                TrackedAnimal.entries.forEach { trackedAnimal ->
-                    AnimalSelectionChip(
-                        trackedAnimal = trackedAnimal,
-                        selected = uiState.visibleAnimals.any { it.trackedAnimal == trackedAnimal },
-                        enabled = !uiState.isSessionActive,
-                        onClick = { onToggleAnimal(trackedAnimal) }
-                    )
-                }
-            }
-
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = selectedSummary,
-                onValueChange = {},
-                readOnly = true,
-                enabled = false,
-                label = {
-                    Text("Animals selected")
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
-                )
             )
 
             OutlinedTextField(
@@ -575,11 +560,41 @@ private fun SessionControlsCard(
 
             if (uiState.isSessionActive) {
                 Text(
-                    text = "Animal selection, observer name, and time offset are locked while a session is active.",
+                    text = "Session details are locked while recording.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SessionControlsCard(
+    uiState: FocalSamplingUiState,
+    isPortraitTablet: Boolean,
+    onStartSession: () -> Unit,
+    onStopSession: () -> Unit,
+    onExportCsv: () -> Unit,
+    onPreviousSessions: () -> Unit
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(if (isPortraitTablet) 24.dp else 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "Session Controls",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
 
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -592,58 +607,141 @@ private fun SessionControlsCard(
                     Text("Start Session")
                 }
 
-                OutlinedButton(
-                    onClick = onStopSession,
-                    enabled = uiState.isSessionActive
-                ) {
-                    Text("Stop Session")
+                if (uiState.isSessionActive) {
+                    Button(
+                        onClick = onStopSession,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) { Text("Stop Session") }
                 }
 
-                OutlinedButton(
-                    onClick = onExportCsv,
-                    enabled = uiState.canExport
-                ) {
+                OutlinedButton(onClick = onExportCsv, enabled = uiState.canExport) {
                     Text("Export CSV")
+                }
+
+                OutlinedButton(onClick = onPreviousSessions) {
+                    Text("Previous sessions")
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AnimalSelectionChip(
-    trackedAnimal: TrackedAnimal,
-    selected: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit
+private fun AnimalDetailsCard(
+    animals: List<AnimalPanelUiState>,
+    knownIds: List<String>,
+    onCountChanged: (Int) -> Unit,
+    onIdChanged: (Int, String) -> Unit,
+    onColorChanged: (Int, AnimalColor) -> Unit
 ) {
-    val palette = trackedAnimal.animalColor.palette()
-
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        enabled = enabled,
-        label = {
-            Text(
-                text = trackedAnimal.displayName,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = if (selected) palette.contentColor else MaterialTheme.colorScheme.onSurface
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Animal Details", style = MaterialTheme.typography.titleLarge)
+            ChoiceMenu(
+                label = "Number of animals",
+                selected = animals.size,
+                choices = SupportedAnimalCounts.toList(),
+                text = Int::toString,
+                onSelect = onCountChanged
             )
-        },
-        border = BorderStroke(
-            1.5.dp,
-            if (selected) palette.borderColor else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
-        ),
-        colors = FilterChipDefaults.filterChipColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-            labelColor = MaterialTheme.colorScheme.onSurface,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-            disabledLabelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-            selectedContainerColor = palette.selectionColor,
-            selectedLabelColor = palette.contentColor
-        )
-    )
+            animals.forEach { animal ->
+                var focused by remember { mutableStateOf(false) }
+                val id = animal.animalId.trim()
+                val others = animals.filter { it.slotIndex != animal.slotIndex }
+                    .map { it.animalId.trim() }
+                val duplicate = id.isNotEmpty() && others.any { it.equals(id, ignoreCase = true) }
+                val suggestions = if (focused) knownIds.asSequence()
+                    .filter { it.startsWith(id, ignoreCase = true) && it != id }
+                    .filterNot { candidate -> others.any { it.equals(candidate, ignoreCase = true) } }
+                    .take(5).toList() else emptyList()
+                OutlinedTextField(
+                    value = animal.animalId,
+                    onValueChange = { onIdChanged(animal.slotIndex, it) },
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+                    label = { Text("Animal ${animal.slotIndex + 1} ID") },
+                    singleLine = true,
+                    isError = duplicate,
+                    supportingText = if (duplicate) ({ Text("Use a different ID for each animal.") }) else null
+                )
+                if (suggestions.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        suggestions.forEach { suggestion ->
+                            OutlinedButton(onClick = { onIdChanged(animal.slotIndex, suggestion) }) {
+                                Text(suggestion)
+                            }
+                        }
+                    }
+                }
+                ChoiceMenu(
+                    label = "Card colour",
+                    selected = animal.animalColor,
+                    choices = AnimalColor.entries,
+                    text = AnimalColor::label,
+                    onSelect = { onColorChanged(animal.slotIndex, it) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun <T> ChoiceMenu(
+    label: String,
+    selected: T,
+    choices: List<T>,
+    text: (T) -> String,
+    onSelect: (T) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) { Text("$label: ${text(selected)} \u25BE") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            choices.forEach { choice ->
+                DropdownMenuItem(
+                    text = { Text(text(choice)) },
+                    onClick = {
+                        expanded = false
+                        onSelect(choice)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviousSessionsPage(
+    sessions: List<SamplingSessionEntity>?,
+    onBack: () -> Unit,
+    onExport: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        TextButton(onClick = onBack) { Text("\u2190 Back") }
+        Text("Previous sessions", style = MaterialTheme.typography.headlineSmall)
+        when {
+            sessions == null -> Text("Loading sessions...")
+            sessions.isEmpty() -> Text("No completed sessions yet.")
+            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(sessions, key = { it.id }) { session ->
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Session #${session.id}", style = MaterialTheme.typography.titleMedium)
+                            Text(DateTimeFormats.formatClock(session.startedAtEpochMs))
+                            if (session.observerName.isNotBlank()) Text(session.observerName)
+                            val ids = SessionAnimalIdsCodec.decode(session.animalIdsJson)
+                            if (ids.isNotEmpty()) Text(ids.joinToString())
+                            OutlinedButton(onClick = { onExport(session.id) }) { Text("Export CSV") }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private tailrec fun Context.findActivity(): Activity? {

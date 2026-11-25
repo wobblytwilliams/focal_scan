@@ -2,6 +2,7 @@ package au.edu.cqu.focalapp.data.local
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 
@@ -16,8 +17,29 @@ interface FocalDao {
     @Query("SELECT * FROM sessions WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1")
     suspend fun getActiveSession(): SamplingSessionEntity?
 
-    @Query("SELECT * FROM sessions ORDER BY id DESC LIMIT 1")
-    suspend fun getLatestSession(): SamplingSessionEntity?
+    @Query("SELECT * FROM sessions WHERE ended_at IS NOT NULL ORDER BY id DESC LIMIT 1")
+    suspend fun getLatestFinishedSession(): SamplingSessionEntity?
+
+    @Query("SELECT * FROM sessions WHERE ended_at IS NOT NULL ORDER BY id DESC")
+    suspend fun getFinishedSessions(): List<SamplingSessionEntity>
+
+    @Query("SELECT animal_ids_json FROM sessions ORDER BY id DESC")
+    suspend fun getSavedAnimalIds(): List<String>
+
+    @Query("SELECT cutoff_epoch_ms FROM graph_history WHERE id = 1")
+    suspend fun getGraphCutoff(): Long?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveGraphCutoff(history: GraphHistoryEntity)
+
+    @Query("UPDATE events SET end_time = :endedAtEpochMs WHERE session_id = :sessionId AND end_time IS NULL")
+    suspend fun closeOpenEvents(sessionId: Long, endedAtEpochMs: Long)
+
+    @Transaction
+    suspend fun finishSession(sessionId: Long, endedAtEpochMs: Long) {
+        closeOpenEvents(sessionId, endedAtEpochMs)
+        endSession(sessionId, endedAtEpochMs)
+    }
 
     @Query("SELECT * FROM sessions WHERE id = :sessionId LIMIT 1")
     suspend fun getSessionById(sessionId: Long): SamplingSessionEntity?
@@ -35,17 +57,9 @@ interface FocalDao {
     suspend fun getEventsForSession(sessionId: Long): List<BehaviorEventEntity>
 
     @Query(
-        """
-        SELECT events.*
-        FROM events
-        INNER JOIN sessions ON sessions.id = events.session_id
-        WHERE sessions.session_format_version >= :minimumSessionFormatVersion
-        ORDER BY events.start_time ASC, events.id ASC
-        """
+        "SELECT * FROM events WHERE end_time IS NULL OR end_time > :cutoffEpochMs"
     )
-    suspend fun getEventsForSessionFormat(
-        minimumSessionFormatVersion: Int
-    ): List<BehaviorEventEntity>
+    suspend fun getEventsAfterGraphCutoff(cutoffEpochMs: Long): List<BehaviorEventEntity>
 
     @Query("DELETE FROM events WHERE session_id = :sessionId AND start_time >= :cutoffEpochMs")
     suspend fun deleteEventsStartingFrom(sessionId: Long, cutoffEpochMs: Long): Int

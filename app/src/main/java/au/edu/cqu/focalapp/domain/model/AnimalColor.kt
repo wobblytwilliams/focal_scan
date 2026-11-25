@@ -3,7 +3,9 @@ package au.edu.cqu.focalapp.domain.model
 enum class AnimalColor(val label: String) {
     BLUE("Blue"),
     GREEN("Green"),
-    YELLOW("Yellow");
+    YELLOW("Yellow"),
+    ORANGE("Orange"),
+    PINK("Pink");
 
     companion object {
         fun defaultForSlot(slotIndex: Int): AnimalColor {

@@ -9,8 +9,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [SamplingSessionEntity::class, BehaviorEventEntity::class],
-    version = 4,
+    entities = [SamplingSessionEntity::class, BehaviorEventEntity::class, GraphHistoryEntity::class],
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -60,6 +60,14 @@ abstract class FocalDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "CREATE TABLE graph_history (id INTEGER NOT NULL PRIMARY KEY, cutoff_epoch_ms INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): FocalDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -67,7 +75,7 @@ abstract class FocalDatabase : RoomDatabase() {
                     FocalDatabase::class.java,
                     "focal_sampling.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }

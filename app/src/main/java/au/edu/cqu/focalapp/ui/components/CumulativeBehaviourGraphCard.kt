@@ -1,6 +1,9 @@
 package au.edu.cqu.focalapp.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +21,7 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -30,13 +34,13 @@ import androidx.compose.ui.unit.dp
 import au.edu.cqu.focalapp.domain.model.GraphBehaviourCategory
 import au.edu.cqu.focalapp.ui.AnimalGraphGroupUiState
 import au.edu.cqu.focalapp.ui.BehaviourGraphUiState
-import au.edu.cqu.focalapp.ui.palette
 import kotlin.math.max
 
 @Composable
 fun CumulativeBehaviourGraphCard(
     graph: BehaviourGraphUiState,
     isPortraitTablet: Boolean,
+    onClearHistory: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val contentPadding = if (isPortraitTablet) 24.dp else 16.dp
@@ -59,8 +63,12 @@ fun CumulativeBehaviourGraphCard(
                 fontWeight = FontWeight.SemiBold
             )
 
+            TextButton(onClick = onClearHistory, enabled = graph.hasGroups) {
+                Text("Clear history")
+            }
+
             Text(
-                text = "Grouped bars show minutes for Walking, Grazing, and Idle across saved tablet sessions. Blue, Green, and Yellow always stay visible here as a focus guide, and the current session updates live.",
+                text = "Minutes by animal ID across saved sessions, including live recording.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -75,7 +83,7 @@ fun CumulativeBehaviourGraphCard(
                 )
             } else {
                 Text(
-                    text = "Select at least one animal to show the graph.",
+                    text = "Animal IDs will appear here after you start a session.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -144,7 +152,7 @@ private fun GroupedBarChart(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Bottom
+        verticalAlignment = Alignment.Top
     ) {
         Column(
             modifier = Modifier
@@ -158,92 +166,96 @@ private fun GroupedBarChart(
             Text("0", style = MaterialTheme.typography.labelSmall, color = axisTextColor)
         }
 
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(chartHeight)
+        BoxWithConstraints(Modifier.weight(1f)) {
+            val chartWidth = maxWidth.coerceAtLeast(88.dp * groups.size)
+            Column(
+                modifier = Modifier.horizontalScroll(rememberScrollState()).width(chartWidth),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val groupCount = groups.size.coerceAtLeast(1)
-                    val groupGap = 18.dp.toPx()
-                    val barGap = 6.dp.toPx()
-                    val availableWidth = size.width - groupGap * (groupCount - 1)
-                    val groupWidth = availableWidth / groupCount
-                    val barWidth = ((groupWidth - barGap * 2f) / 3f).coerceAtLeast(8.dp.toPx())
-                    val radius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(chartHeight)
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val groupCount = groups.size.coerceAtLeast(1)
+                        val groupGap = 18.dp.toPx()
+                        val barGap = 6.dp.toPx()
+                        val availableWidth = size.width - groupGap * (groupCount - 1)
+                        val groupWidth = availableWidth / groupCount
+                        val barWidth = ((groupWidth - barGap * 2f) / 3f).coerceAtLeast(8.dp.toPx())
+                        val radius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
 
-                    val chartMax = yAxisMaxMinutes.toFloat().coerceAtLeast(1f)
-                    val baselineY = size.height
-                    val midY = size.height / 2f
+                        val chartMax = yAxisMaxMinutes.toFloat().coerceAtLeast(1f)
+                        val baselineY = size.height
+                        val midY = size.height / 2f
 
-                    drawLine(
-                        color = outlineColor,
-                        start = androidx.compose.ui.geometry.Offset(0f, baselineY),
-                        end = androidx.compose.ui.geometry.Offset(size.width, baselineY),
-                        strokeWidth = 1.dp.toPx()
-                    )
-                    drawLine(
-                        color = outlineColor,
-                        start = androidx.compose.ui.geometry.Offset(0f, midY),
-                        end = androidx.compose.ui.geometry.Offset(size.width, midY),
-                        strokeWidth = 1.dp.toPx()
-                    )
-                    drawLine(
-                        color = outlineColor,
-                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                        end = androidx.compose.ui.geometry.Offset(size.width, 0f),
-                        strokeWidth = 1.dp.toPx()
-                    )
-                    drawRect(
-                        color = outlineColor,
-                        size = size,
-                        style = Stroke(width = 1.dp.toPx())
-                    )
+                        drawLine(
+                            color = outlineColor,
+                            start = androidx.compose.ui.geometry.Offset(0f, baselineY),
+                            end = androidx.compose.ui.geometry.Offset(size.width, baselineY),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                        drawLine(
+                            color = outlineColor,
+                            start = androidx.compose.ui.geometry.Offset(0f, midY),
+                            end = androidx.compose.ui.geometry.Offset(size.width, midY),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                        drawLine(
+                            color = outlineColor,
+                            start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                            end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                        drawRect(
+                            color = outlineColor,
+                            size = size,
+                            style = Stroke(width = 1.dp.toPx())
+                        )
 
-                    groups.forEachIndexed { groupIndex, group ->
-                        val groupStart = groupIndex * (groupWidth + groupGap)
-                        group.bars.forEachIndexed { barIndex, bar ->
-                            val heightFraction = (bar.minutes / chartMax).coerceIn(0f, 1f)
-                            val barHeight = size.height * heightFraction
-                            val left = groupStart + barIndex * (barWidth + barGap)
-                            val top = baselineY - barHeight
+                        groups.forEachIndexed { groupIndex, group ->
+                            val groupStart = groupIndex * (groupWidth + groupGap)
+                            group.bars.forEachIndexed { barIndex, bar ->
+                                val heightFraction = (bar.minutes / chartMax).coerceIn(0f, 1f)
+                                val barHeight = size.height * heightFraction
+                                val left = groupStart + barIndex * (barWidth + barGap)
+                                val top = baselineY - barHeight
 
-                            drawRoundRect(
-                                color = graphCategoryColor(bar.category),
-                                topLeft = androidx.compose.ui.geometry.Offset(left, top),
-                                size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
-                                cornerRadius = radius
-                            )
+                                drawRoundRect(
+                                    color = graphCategoryColor(bar.category),
+                                    topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                                    size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
+                                    cornerRadius = radius
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(18.dp)
-            ) {
-                groups.forEach { group ->
-                    val palette = group.trackedAnimal.animalColor.palette()
-                    Text(
-                        modifier = Modifier.weight(1f),
-                        text = group.trackedAnimal.displayName,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = palette.borderColor,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    groups.forEach { group ->
+                        Text(
+                            modifier = Modifier.weight(1f),
+                            text = group.animalId,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = labelColor,
+                            maxLines = 2,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
-            }
 
-            Text(
-                text = "Minutes",
-                style = MaterialTheme.typography.labelMedium,
-                color = labelColor
-            )
+                Text(
+                    text = "Minutes",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = labelColor
+                )
+            }
         }
     }
 }

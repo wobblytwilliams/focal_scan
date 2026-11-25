@@ -3,13 +3,13 @@ package au.edu.cqu.focalapp.data.repository
 import au.edu.cqu.focalapp.data.local.BehaviorEventEntity
 import au.edu.cqu.focalapp.data.local.FocalDao
 import au.edu.cqu.focalapp.data.local.SamplingSessionEntity
+import au.edu.cqu.focalapp.data.local.GraphHistoryEntity
 import au.edu.cqu.focalapp.data.local.SessionFormatVersion
 import au.edu.cqu.focalapp.domain.model.AnimalBehaviourTotals
 import au.edu.cqu.focalapp.domain.model.Behavior
-import au.edu.cqu.focalapp.domain.model.TrackedAnimal
+import au.edu.cqu.focalapp.domain.model.AnimalColor
 import au.edu.cqu.focalapp.util.SessionAnimalColorsCodec
 import au.edu.cqu.focalapp.util.SessionAnimalIdsCodec
-import au.edu.cqu.focalapp.util.SessionTrackedAnimalsCodec
 
 data class ActiveSessionSnapshot(
     val session: SamplingSessionEntity,
@@ -27,25 +27,35 @@ class FocalRepository(
         )
     }
 
-    suspend fun getLatestSession(): SamplingSessionEntity? = dao.getLatestSession()
+    suspend fun getLatestFinishedSession(): SamplingSessionEntity? = dao.getLatestFinishedSession()
+
+    suspend fun getFinishedSessions(): List<SamplingSessionEntity> = dao.getFinishedSessions()
+
+    suspend fun getKnownAnimalIds(): List<String> = dao.getSavedAnimalIds()
+        .flatMap(SessionAnimalIdsCodec::decode)
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .distinctBy { it.lowercase() }
+
+    suspend fun clearGraphHistory(nowEpochMs: Long) {
+        dao.saveGraphCutoff(GraphHistoryEntity(cutoffEpochMs = nowEpochMs))
+    }
 
     suspend fun getSessionById(sessionId: Long): SamplingSessionEntity? = dao.getSessionById(sessionId)
 
     suspend fun startSession(
         startedAtEpochMs: Long,
-        trackedAnimals: List<TrackedAnimal>,
+        animalIds: List<String>,
+        animalColors: List<AnimalColor>,
         observerName: String,
         timeOffsetSeconds: Double
     ): Long {
-        val animalIds = trackedAnimals.map(TrackedAnimal::displayName)
-        val animalColors = trackedAnimals.map(TrackedAnimal::animalColor)
         return dao.insertSession(
             SamplingSessionEntity(
-                animalCount = trackedAnimals.size,
+                animalCount = animalIds.size,
                 animalIdsJson = SessionAnimalIdsCodec.encode(animalIds),
                 animalColorsJson = SessionAnimalColorsCodec.encode(animalColors),
-                trackedAnimalsJson = SessionTrackedAnimalsCodec.encode(trackedAnimals),
-                sessionFormatVersion = SessionFormatVersion.TRACKED_ANIMALS,
+                sessionFormatVersion = SessionFormatVersion.CUSTOM_ANIMALS,
                 observerName = observerName,
                 timeOffsetSeconds = timeOffsetSeconds,
                 startedAtEpochMs = startedAtEpochMs
@@ -54,7 +64,7 @@ class FocalRepository(
     }
 
     suspend fun stopSession(sessionId: Long, endedAtEpochMs: Long) {
-        dao.endSession(sessionId, endedAtEpochMs)
+        dao.finishSession(sessionId, endedAtEpochMs)
     }
 
     suspend fun startEvent(
@@ -94,27 +104,16 @@ class FocalRepository(
     }
 
     suspend fun getCumulativeBehaviourTotals(nowEpochMs: Long): List<AnimalBehaviourTotals> {
-        val totalsByAnimal = dao.getEventsForSessionFormat(
-            minimumSessionFormatVersion = SessionFormatVersion.TRACKED_ANIMALS
-        ).fold(
-            initial = TrackedAnimal.entries.associateWith { trackedAnimal ->
-                AnimalBehaviourTotals(trackedAnimal)
-            }
-        ) { totals, event ->
-            val trackedAnimal = TrackedAnimal.fromStoredAnimalId(event.animalId) ?: return@fold totals
-            val endTimeEpochMs = event.endTimeEpochMs ?: nowEpochMs
-            val durationMs = (endTimeEpochMs - event.startTimeEpochMs).coerceAtLeast(0L)
-
-            totals + (
-                trackedAnimal to totals.getValue(trackedAnimal).add(
-                    behaviour = event.behaviour,
-                    durationMs = durationMs
-                )
-            )
+        val cutoff = dao.getGraphCutoff() ?: Long.MIN_VALUE
+        val totals = linkedMapOf<String, AnimalBehaviourTotals>()
+        for (event in dao.getEventsAfterGraphCutoff(cutoff)) {
+            val animalId = event.animalId.trim()
+            val key = animalId.lowercase()
+            val end = event.endTimeEpochMs ?: nowEpochMs
+            val start = maxOf(event.startTimeEpochMs, cutoff)
+            val total = totals[key] ?: AnimalBehaviourTotals(animalId)
+            totals[key] = total.add(event.behaviour, (end - start).coerceAtLeast(0L))
         }
-
-        return TrackedAnimal.entries.map { trackedAnimal ->
-            totalsByAnimal.getValue(trackedAnimal)
-        }
+        return totals.values.toList()
     }
 }

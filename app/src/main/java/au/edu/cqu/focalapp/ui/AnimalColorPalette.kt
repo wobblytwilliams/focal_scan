@@ -48,5 +48,27 @@ fun AnimalColor.palette(): AnimalColorPalette {
             supportingColor = Color(0xFF6B5925),
             fieldColor = Color(0xFFFFFBF2)
         )
+
+        AnimalColor.ORANGE -> AnimalColorPalette(
+            containerColor = Color(0xFFFFEDDD),
+            activeContainerColor = Color(0xFFFFDAB8),
+            borderColor = Color(0xFFB45309),
+            selectionColor = Color(0xFFFFC28C),
+            previewColor = Color(0xFFFFE3CC),
+            contentColor = Color(0xFF43220B),
+            supportingColor = Color(0xFF71441E),
+            fieldColor = Color(0xFFFFF8F2)
+        )
+
+        AnimalColor.PINK -> AnimalColorPalette(
+            containerColor = Color(0xFFFCE7EF),
+            activeContainerColor = Color(0xFFF8CCD9),
+            borderColor = Color(0xFFAD3660),
+            selectionColor = Color(0xFFF3AFCA),
+            previewColor = Color(0xFFFADDE8),
+            contentColor = Color(0xFF42172A),
+            supportingColor = Color(0xFF713C53),
+            fieldColor = Color(0xFFFFF6FA)
+        )
     }
 }

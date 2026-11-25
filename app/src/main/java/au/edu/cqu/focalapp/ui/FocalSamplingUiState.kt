@@ -3,38 +3,21 @@ package au.edu.cqu.focalapp.ui
 import au.edu.cqu.focalapp.domain.model.AnimalColor
 import au.edu.cqu.focalapp.domain.model.Behavior
 import au.edu.cqu.focalapp.domain.model.GraphBehaviourCategory
-import au.edu.cqu.focalapp.domain.model.TrackedAnimal
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 
+internal val SupportedAnimalCounts = 1..5
+
 data class AnimalPanelUiState(
     val slotIndex: Int,
-    val trackedAnimal: TrackedAnimal,
-    val isSelected: Boolean = true,
+    val animalId: String = "",
+    val animalColor: AnimalColor = AnimalColor.defaultForSlot(slotIndex),
     val activeBehaviour: Behavior? = null,
     val activeEventId: Long? = null,
     val activeStartedAtEpochMs: Long? = null
-) {
-    val animalId: String
-        get() = trackedAnimal.displayName
-
-    val animalColor: AnimalColor
-        get() = trackedAnimal.animalColor
-
-    companion object {
-        fun defaults(selectedAnimals: List<TrackedAnimal> = TrackedAnimal.defaultSelection()): List<AnimalPanelUiState> {
-            return TrackedAnimal.entries.mapIndexed { index, trackedAnimal ->
-                AnimalPanelUiState(
-                    slotIndex = index,
-                    trackedAnimal = trackedAnimal,
-                    isSelected = trackedAnimal in selectedAnimals
-                )
-            }
-        }
-    }
-}
+)
 
 enum class TimeOffsetDirection {
     AHEAD,
@@ -90,7 +73,7 @@ data class AnimalGraphBarUiState(
 )
 
 data class AnimalGraphGroupUiState(
-    val trackedAnimal: TrackedAnimal,
+    val animalId: String,
     val bars: List<AnimalGraphBarUiState>
 ) {
     val maxMinutes: Float
@@ -112,21 +95,20 @@ data class FocalSamplingUiState(
     val exportSessionId: Long? = null,
     val showTimeWarning: Boolean = false,
     val sessionMetadata: SessionMetadataUiState = SessionMetadataUiState(),
-    val animals: List<AnimalPanelUiState> = AnimalPanelUiState.defaults(),
-    val graph: BehaviourGraphUiState = defaultBehaviourGraphUiState()
+    val animals: List<AnimalPanelUiState> = listOf(AnimalPanelUiState(0)),
+    val knownAnimalIds: List<String> = emptyList(),
+    val graph: BehaviourGraphUiState = BehaviourGraphUiState()
 ) {
     val canExport: Boolean
         get() = exportSessionId != null
 
-    val visibleAnimals: List<AnimalPanelUiState>
-        get() = animals.filter(AnimalPanelUiState::isSelected)
-
-    val selectedTrackedAnimals: List<TrackedAnimal>
-        get() = visibleAnimals.map(AnimalPanelUiState::trackedAnimal)
+    val hasValidAnimalIds: Boolean
+        get() = animals.all { it.animalId.isNotBlank() } &&
+            animals.map { it.animalId.trim().lowercase() }.distinct().size == animals.size
 
     val canStartSession: Boolean
         get() = !isSessionActive &&
-            visibleAnimals.isNotEmpty() &&
+            hasValidAnimalIds &&
             sessionMetadata.isObserverNameValid &&
             sessionMetadata.isTimeOffsetValid
 }
@@ -177,24 +159,6 @@ internal fun formatTimeOffsetInput(signedSeconds: Double): String {
     } else {
         String.format(Locale.US, "%.1f", absoluteSeconds)
     }
-}
-
-internal fun defaultBehaviourGraphUiState(): BehaviourGraphUiState {
-    val groups = TrackedAnimal.entries.map { trackedAnimal ->
-        AnimalGraphGroupUiState(
-            trackedAnimal = trackedAnimal,
-            bars = listOf(
-                AnimalGraphBarUiState(GraphBehaviourCategory.WALKING, 0f),
-                AnimalGraphBarUiState(GraphBehaviourCategory.GRAZING, 0f),
-                AnimalGraphBarUiState(GraphBehaviourCategory.IDLE, 0f)
-            )
-        )
-    }
-
-    return BehaviourGraphUiState(
-        groups = groups,
-        yAxisMaxMinutes = calculateGraphAxisMaxMinutes(groups)
-    )
 }
 
 internal fun calculateGraphAxisMaxMinutes(groups: List<AnimalGraphGroupUiState>): Int {

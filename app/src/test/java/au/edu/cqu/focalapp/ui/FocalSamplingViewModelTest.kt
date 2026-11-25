@@ -7,9 +7,10 @@ import au.edu.cqu.focalapp.data.local.FocalDatabase
 import au.edu.cqu.focalapp.data.local.SessionFormatVersion
 import au.edu.cqu.focalapp.data.repository.FocalRepository
 import au.edu.cqu.focalapp.domain.model.Behavior
-import au.edu.cqu.focalapp.domain.model.TrackedAnimal
+import au.edu.cqu.focalapp.domain.model.AnimalColor
 import au.edu.cqu.focalapp.util.MainDispatcherRule
-import au.edu.cqu.focalapp.util.SessionTrackedAnimalsCodec
+import au.edu.cqu.focalapp.util.SessionAnimalIdsCodec
+import au.edu.cqu.focalapp.util.SessionAnimalColorsCodec
 import au.edu.cqu.focalapp.util.TimeProvider
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -62,42 +63,28 @@ class FocalSamplingViewModelTest {
     }
 
     @Test
-    fun initialState_startsWithNoAnimalsSelected() = runTest {
+    fun changingAnimalCountPreservesExistingIdsAndColours() = runTest {
         val viewModel = createViewModel()
         flushViewModelWork()
+        assertFalse(viewModel.uiState.value.canStartSession)
+        assertTrue(viewModel.uiState.value.graph.groups.isEmpty())
 
-        assertTrue(viewModel.uiState.value.visibleAnimals.isEmpty())
-        assertEquals(
-            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN, TrackedAnimal.YELLOW),
-            viewModel.uiState.value.graph.groups.map(AnimalGraphGroupUiState::trackedAnimal)
-        )
-    }
-
-    @Test
-    fun toggleAnimalSelection_filtersVisibleAnimalsButKeepsAllGraphGroups() = runTest {
-        val viewModel = createViewModel()
-        flushViewModelWork()
-
-        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
-        viewModel.toggleAnimalSelection(TrackedAnimal.GREEN)
-        flushViewModelWork()
-
-        val state = viewModel.uiState.value
-        assertEquals(
-            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
-            state.visibleAnimals.map(AnimalPanelUiState::trackedAnimal)
-        )
-        assertEquals(
-            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN, TrackedAnimal.YELLOW),
-            state.graph.groups.map(AnimalGraphGroupUiState::trackedAnimal)
-        )
+        viewModel.setAnimalId(0, "Cow-01")
+        viewModel.setAnimalColor(0, AnimalColor.PINK)
+        viewModel.setAnimalCount(5)
+        viewModel.setAnimalId(1, " cow-01 ")
+        assertFalse(viewModel.uiState.value.hasValidAnimalIds)
+        assertEquals(5, viewModel.uiState.value.animals.size)
+        viewModel.setAnimalCount(1)
+        assertEquals("Cow-01", viewModel.uiState.value.animals.single().animalId)
+        assertEquals(AnimalColor.PINK, viewModel.uiState.value.animals.single().animalColor)
     }
 
     @Test
     fun requestStartSession_showsTimeWarningBeforeStarting() = runTest {
         val viewModel = createViewModel()
         flushViewModelWork()
-        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        viewModel.setAnimalId(0, "Cow-01")
         populateValidSessionMetadata(viewModel)
         flushViewModelWork()
 
@@ -110,8 +97,9 @@ class FocalSamplingViewModelTest {
     fun confirmTimeWarning_startsSessionWithSelectedAnimals() = runTest {
         val viewModel = createViewModel()
         flushViewModelWork()
-        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
-        viewModel.toggleAnimalSelection(TrackedAnimal.GREEN)
+        viewModel.setAnimalCount(2)
+        viewModel.setAnimalId(0, "Cow-01")
+        viewModel.setAnimalId(1, "Cow-02")
         populateValidSessionMetadata(viewModel)
         flushViewModelWork()
 
@@ -122,16 +110,17 @@ class FocalSamplingViewModelTest {
         val activeState = viewModel.uiState.value
         assertTrue(activeState.isSessionActive)
         assertEquals(
-            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
-            activeState.visibleAnimals.map(AnimalPanelUiState::trackedAnimal)
+            listOf("Cow-01", "Cow-02"),
+            activeState.animals.map(AnimalPanelUiState::animalId)
         )
 
         val session = repository.getSessionById(activeState.activeSessionId!!)!!
-        assertEquals(SessionFormatVersion.TRACKED_ANIMALS, session.sessionFormatVersion)
+        assertEquals(SessionFormatVersion.CUSTOM_ANIMALS, session.sessionFormatVersion)
         assertEquals(
-            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
-            SessionTrackedAnimalsCodec.decode(session.trackedAnimalsJson)
+            listOf("Cow-01", "Cow-02"),
+            SessionAnimalIdsCodec.decode(session.animalIdsJson)
         )
+        assertEquals(listOf(AnimalColor.BLUE, AnimalColor.GREEN), SessionAnimalColorsCodec.decode(session.animalColorsJson))
         assertEquals("Observer One", session.observerName)
         assertEquals(-0.3, session.timeOffsetSeconds, 0.0)
 
@@ -140,9 +129,10 @@ class FocalSamplingViewModelTest {
 
         assertTrue(restoredViewModel.uiState.value.isSessionActive)
         assertEquals(
-            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
-            restoredViewModel.uiState.value.visibleAnimals.map(AnimalPanelUiState::trackedAnimal)
+            listOf("Cow-01", "Cow-02"),
+            restoredViewModel.uiState.value.animals.map(AnimalPanelUiState::animalId)
         )
+        assertEquals(listOf("Cow-01", "Cow-02"), restoredViewModel.uiState.value.knownAnimalIds)
         assertEquals("Observer One", restoredViewModel.uiState.value.sessionMetadata.observerName)
         assertEquals("0.3", restoredViewModel.uiState.value.sessionMetadata.timeOffsetInput)
         assertEquals(TimeOffsetDirection.BEHIND, restoredViewModel.uiState.value.sessionMetadata.timeOffsetDirection)
@@ -152,7 +142,7 @@ class FocalSamplingViewModelTest {
     fun dismissTimeWarning_returnsToMainScreen() = runTest {
         val viewModel = createViewModel()
         flushViewModelWork()
-        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        viewModel.setAnimalId(0, "Cow-01")
         populateValidSessionMetadata(viewModel)
         flushViewModelWork()
 
@@ -167,20 +157,23 @@ class FocalSamplingViewModelTest {
         val viewModel = createViewModel()
         flushViewModelWork()
 
-        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
-        viewModel.toggleAnimalSelection(TrackedAnimal.GREEN)
+        viewModel.setAnimalCount(2)
+        viewModel.setAnimalId(0, "Cow-01")
+        viewModel.setAnimalId(1, "Cow-02")
         populateValidSessionMetadata(viewModel)
         flushViewModelWork()
         viewModel.requestStartSession()
         viewModel.confirmTimeWarning()
         flushViewModelWork()
 
-        viewModel.toggleAnimalSelection(TrackedAnimal.YELLOW)
+        viewModel.setAnimalCount(3)
+        viewModel.setAnimalId(0, "Changed")
+        viewModel.setAnimalColor(0, AnimalColor.ORANGE)
         flushViewModelWork()
 
         assertEquals(
-            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN),
-            viewModel.uiState.value.visibleAnimals.map(AnimalPanelUiState::trackedAnimal)
+            listOf("Cow-01", "Cow-02"),
+            viewModel.uiState.value.animals.map(AnimalPanelUiState::animalId)
         )
     }
 
@@ -189,8 +182,9 @@ class FocalSamplingViewModelTest {
         val viewModel = createViewModel()
         flushViewModelWork()
 
-        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
-        viewModel.toggleAnimalSelection(TrackedAnimal.GREEN)
+        viewModel.setAnimalCount(2)
+        viewModel.setAnimalId(0, "Cow-01")
+        viewModel.setAnimalId(1, "Cow-02")
         populateValidSessionMetadata(viewModel)
         flushViewModelWork()
         viewModel.requestStartSession()
@@ -199,33 +193,33 @@ class FocalSamplingViewModelTest {
 
         timeProvider.now = 105_000L
         viewModel.onBehaviourPressed(
-            slotIndex = TrackedAnimal.BLUE.ordinal,
+            slotIndex = 0,
             behaviour = Behavior.GRAZING
         )
         flushViewModelWork()
 
         timeProvider.now = 110_000L
         viewModel.onBehaviourPressed(
-            slotIndex = TrackedAnimal.GREEN.ordinal,
+            slotIndex = 1,
             behaviour = Behavior.WALKING
         )
         flushViewModelWork()
 
         timeProvider.now = 135_000L
-        viewModel.deleteLast30Seconds(slotIndex = TrackedAnimal.BLUE.ordinal)
+        viewModel.deleteLast30Seconds(slotIndex = 0)
         flushViewModelWork()
 
         val state = viewModel.uiState.value
         assertTrue(state.isSessionActive)
-        assertNull(state.animals[TrackedAnimal.BLUE.ordinal].activeBehaviour)
+        assertNull(state.animals[0].activeBehaviour)
         assertEquals(
             Behavior.WALKING,
-            state.animals[TrackedAnimal.GREEN.ordinal].activeBehaviour
+            state.animals[1].activeBehaviour
         )
 
         val events = repository.getEventsForSession(state.activeSessionId!!)
         assertEquals(1, events.size)
-        assertEquals(TrackedAnimal.GREEN.displayName, events.single().animalId)
+        assertEquals("Cow-02", events.single().animalId)
         assertNull(events.single().endTimeEpochMs)
         assertNull(repository.getSessionById(state.activeSessionId!!)?.endedAtEpochMs)
     }
@@ -239,18 +233,15 @@ class FocalSamplingViewModelTest {
         flushViewModelWork()
 
         assertFalse(viewModel.uiState.value.showTimeWarning)
-        assertTrue(viewModel.uiState.value.visibleAnimals.isEmpty())
-        assertEquals(
-            listOf(TrackedAnimal.BLUE, TrackedAnimal.GREEN, TrackedAnimal.YELLOW),
-            viewModel.uiState.value.graph.groups.map(AnimalGraphGroupUiState::trackedAnimal)
-        )
+        assertTrue(viewModel.uiState.value.animals.single().animalId.isEmpty())
+        assertTrue(viewModel.uiState.value.graph.groups.isEmpty())
     }
 
     @Test
     fun requestStartSession_requiresObserverName() = runTest {
         val viewModel = createViewModel()
         flushViewModelWork()
-        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        viewModel.setAnimalId(0, "Cow-01")
         viewModel.onTimeOffsetValueChanged("0")
         flushViewModelWork()
 
@@ -265,7 +256,7 @@ class FocalSamplingViewModelTest {
     fun requestStartSession_requiresValidTimeOffset() = runTest {
         val viewModel = createViewModel()
         flushViewModelWork()
-        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        viewModel.setAnimalId(0, "Cow-01")
         viewModel.onObserverNameChanged("Observer Two")
         viewModel.onTimeOffsetValueChanged("0.33")
         flushViewModelWork()
@@ -281,7 +272,7 @@ class FocalSamplingViewModelTest {
     fun confirmTimeWarning_acceptsZeroOffset() = runTest {
         val zeroViewModel = createViewModel()
         flushViewModelWork()
-        zeroViewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        zeroViewModel.setAnimalId(0, "Cow-01")
         zeroViewModel.onObserverNameChanged("Observer Zero")
         zeroViewModel.onTimeOffsetValueChanged("0.0")
         flushViewModelWork()
@@ -301,7 +292,7 @@ class FocalSamplingViewModelTest {
     fun confirmTimeWarning_acceptsOneDecimalOffset() = runTest {
         val decimalViewModel = createViewModel()
         flushViewModelWork()
-        decimalViewModel.toggleAnimalSelection(TrackedAnimal.GREEN)
+        decimalViewModel.setAnimalId(0, "Cow-02")
         decimalViewModel.onObserverNameChanged("Observer Decimal")
         decimalViewModel.onTimeOffsetDirectionChanged(TimeOffsetDirection.AHEAD)
         decimalViewModel.onTimeOffsetValueChanged("1.2")
@@ -322,7 +313,7 @@ class FocalSamplingViewModelTest {
     fun stopSession_emitsExportEventImmediately() = runTest {
         val viewModel = createViewModel()
         flushViewModelWork()
-        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        viewModel.setAnimalId(0, "Cow-01")
         populateValidSessionMetadata(viewModel)
         flushViewModelWork()
 
@@ -349,7 +340,7 @@ class FocalSamplingViewModelTest {
     fun exportCsv_allowsHeaderOnlyExportForStoppedSessionWithNoEvents() = runTest {
         val viewModel = createViewModel()
         flushViewModelWork()
-        viewModel.toggleAnimalSelection(TrackedAnimal.BLUE)
+        viewModel.setAnimalId(0, "Cow-01")
         populateValidSessionMetadata(viewModel)
         flushViewModelWork()
 
@@ -374,6 +365,42 @@ class FocalSamplingViewModelTest {
 
         val payload = manualExport.await().payload
         assertTrue(payload.content.trim() == "session_id,observer_name,time_offset_seconds,animal_id,behaviour,start_time,end_time")
+    }
+
+    @Test
+    fun previousSessionsExportTheChosenSessionAndMainExportUsesLatestCompletedSession() = runTest {
+        suspend fun saveSession(id: String): Long = repository.startSession(
+            startedAtEpochMs = timeProvider.now,
+            animalIds = listOf(id),
+            animalColors = listOf(AnimalColor.BLUE),
+            observerName = "Observer One",
+            timeOffsetSeconds = 0.0
+        )
+
+        val older = saveSession("Cow-01")
+        repository.stopSession(older, timeProvider.now)
+        val latest = saveSession("Cow-02")
+        repository.stopSession(latest, timeProvider.now)
+        saveSession("Cow-03")
+
+        val viewModel = createViewModel()
+        flushViewModelWork()
+        viewModel.loadPreviousSessions()
+        flushViewModelWork()
+        assertEquals(listOf(latest, older), viewModel.previousSessions.value?.map { it.id })
+        assertTrue(viewModel.uiState.value.isSessionActive)
+
+        suspend fun exportFileName(sessionId: Long? = null): String {
+            val export = async(start = CoroutineStart.UNDISPATCHED) {
+                viewModel.events.first { it is UiEvent.ExportCsv } as UiEvent.ExportCsv
+            }
+            viewModel.exportCsv(sessionId)
+            flushViewModelWork()
+            return export.await().payload.fileName
+        }
+
+        assertTrue(exportFileName(older).startsWith("focal_session_${older}_"))
+        assertTrue(exportFileName().startsWith("focal_session_${latest}_"))
     }
 
     private fun createViewModel(): FocalSamplingViewModel {

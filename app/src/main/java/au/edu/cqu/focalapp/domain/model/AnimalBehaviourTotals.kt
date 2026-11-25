@@ -7,7 +7,7 @@ enum class GraphBehaviourCategory(val label: String) {
 }
 
 data class AnimalBehaviourTotals(
-    val trackedAnimal: TrackedAnimal,
+    val animalId: String,
     val walkingDurationMs: Long = 0L,
     val grazingDurationMs: Long = 0L,
     val idleDurationMs: Long = 0L

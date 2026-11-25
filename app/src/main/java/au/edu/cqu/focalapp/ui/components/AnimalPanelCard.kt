@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -51,10 +50,7 @@ fun AnimalPanelCard(
         2 -> 16.dp
         else -> 12.dp
     }
-    val titleStyle = when (totalAnimals) {
-        3 -> MaterialTheme.typography.titleSmall
-        else -> MaterialTheme.typography.titleMedium
-    }
+    val titleStyle = if (totalAnimals >= 3) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium
     val behaviourLabelStyle = when (totalAnimals) {
         1 -> MaterialTheme.typography.bodyMedium
         2 -> MaterialTheme.typography.labelLarge
@@ -64,18 +60,15 @@ fun AnimalPanelCard(
         1 -> MaterialTheme.typography.bodyLarge
         else -> MaterialTheme.typography.bodyMedium
     }
-    val statusStyle = when (totalAnimals) {
-        3 -> MaterialTheme.typography.labelSmall
-        else -> MaterialTheme.typography.labelMedium
-    }
+    val statusStyle = if (totalAnimals >= 3) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium
 
     val containerColor = palette.containerColor
     val behaviourChipColor = palette.fieldColor
     val activeBehaviourChipColor = palette.activeContainerColor
-    val instructionText = if (totalAnimals == 3) {
-        "Tap a behaviour for ${animal.trackedAnimal.displayName.lowercase()}."
+    val instructionText = if (totalAnimals >= 3) {
+        "Tap a behaviour for ${animal.animalId}."
     } else {
-        "Tap a behaviour to start or switch logging for ${animal.trackedAnimal.displayName.lowercase()}."
+        "Tap a behaviour to start or switch logging for ${animal.animalId}."
     }
     val behaviourRows = behaviourRowsFor(totalAnimals)
     val maxButtonsPerRow = behaviourRows.maxOf { it.size }
@@ -90,7 +83,7 @@ fun AnimalPanelCard(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(contentPadding),
             verticalArrangement = Arrangement.spacedBy(verticalSpacing)
         ) {
@@ -100,7 +93,10 @@ fun AnimalPanelCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = animal.trackedAnimal.displayName,
+                    text = animal.animalId,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                     style = titleStyle,
                     fontWeight = FontWeight.SemiBold,
                     color = titleColor
@@ -127,12 +123,12 @@ fun AnimalPanelCard(
 
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(if (totalAnimals == 3) 6.dp else 8.dp)
+                verticalArrangement = Arrangement.spacedBy(if (totalAnimals >= 3) 6.dp else 8.dp)
             ) {
                 behaviourRows.forEach { rowBehaviours ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(if (totalAnimals == 3) 6.dp else 8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(if (totalAnimals >= 3) 6.dp else 8.dp)
                     ) {
                         rowBehaviours.forEach { behaviour ->
                             FilterChip(
@@ -192,7 +188,7 @@ fun AnimalPanelCard(
                     contentColor = MaterialTheme.colorScheme.onError
                 )
             ) {
-                Text(if (totalAnimals == 3) "Delete 30s" else "Delete Last 30s")
+                Text(if (totalAnimals >= 3) "Delete 30s" else "Delete Last 30s")
             }
         }
     }
