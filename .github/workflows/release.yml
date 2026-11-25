@@ -1,6 +1,7 @@
 name: Release APK
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -32,13 +33,46 @@ jobs:
         with:
           packages: "platform-tools platforms;android-35 build-tools;36.0.0"
 
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --console=plain
+      - name: Build unsigned release APK
+        run: gradle :app:assembleRelease --console=plain
 
-      - name: Rename APK for release
-        run: cp app/build/outputs/apk/debug/app-debug.apk "focal-scan_${GITHUB_REF_NAME}.apk"
+      - name: Sign and verify APK
+        shell: bash
+        env:
+          FOCAL_RELEASE_KEYSTORE: ${{ secrets.FOCAL_RELEASE_KEYSTORE }}
+          FOCAL_RELEASE_PASSWORD: ${{ secrets.FOCAL_RELEASE_PASSWORD }}
+          FOCAL_RELEASE_CERT_SHA256: e9ad3bc72b6e0a2a446e478d2b0d17e8ce340e55d16f9b52af1201f74fb8323f
+        run: |
+          if [[ -z "$FOCAL_RELEASE_KEYSTORE" || -z "$FOCAL_RELEASE_PASSWORD" ]]; then
+            echo "::error::Focal Scan release signing secrets are missing."
+            exit 1
+          fi
+
+          umask 077
+          key_store="$(mktemp "$RUNNER_TEMP/focal-scan-key.XXXXXX")"
+          trap 'rm -f -- "$key_store"' EXIT
+          printf '%s' "$FOCAL_RELEASE_KEYSTORE" | base64 --decode > "$key_store"
+          unset FOCAL_RELEASE_KEYSTORE
+
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          aligned_apk="$RUNNER_TEMP/focal-scan-aligned.apk"
+          signed_apk="focal-scan_${GITHUB_REF_NAME}.apk"
+          "$tools/zipalign" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$aligned_apk"
+          "$tools/apksigner" sign --ks "$key_store" --ks-type PKCS12 \
+            --ks-key-alias focal-scan --ks-pass env:FOCAL_RELEASE_PASSWORD \
+            --out "$signed_apk" "$aligned_apk"
+          unset FOCAL_RELEASE_PASSWORD
+
+          verification="$("$tools/apksigner" verify --print-certs "$signed_apk")"
+          certificate="$(printf '%s\n' "$verification" | awk -F ': ' '/^Signer #1 certificate SHA-256 digest:/ {print $2}')"
+          if [[ "$certificate" != "$FOCAL_RELEASE_CERT_SHA256" ]]; then
+            echo "::error::The APK signing certificate does not match the Focal Scan release key."
+            exit 1
+          fi
+          echo "Verified APK signer SHA-256: $certificate"
 
       - name: Publish GitHub release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
